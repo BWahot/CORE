@@ -52,12 +52,13 @@ await connection.query(
 await connection.query(
   `INSERT INTO users (id, organisation_id, full_name, email, password_hash, role, status) VALUES
     (1, NULL, 'Anthony Khajira', 'platform@demo.test', ?, 'PLATFORM_ADMIN', 'ACTIVE'),
-    (2, 1, 'HopeBridge Admin', 'orgadmin@demo.test', ?, 'ORG_ADMIN', 'ACTIVE'),
-    (3, 1, 'Benjamin Wahothi', 'ngo@demo.test', ?, 'NGO_SOCIAL_WORKER', 'ACTIVE'),
-    (4, 3, 'Sydney Ndeti', 'hospital@demo.test', ?, 'HOSPITAL_RECORDS_KEEPER', 'ACTIVE'),
-    (5, 3, 'KNH Organisation Admin', 'hospitaladmin@demo.test', ?, 'ORG_ADMIN', 'ACTIVE')
+    (2, 1, 'HopeBridge Admin', 'orgadmin@hopebridge.or.ke', ?, 'ORG_ADMIN', 'ACTIVE'),
+    (3, 1, 'Benjamin Wahothi', 'ngo@hopebridge.or.ke', ?, 'NGO_SOCIAL_WORKER', 'ACTIVE'),
+    (4, 3, 'Sydney Ndeti', 'hospital@knh.or.ke', ?, 'HOSPITAL_RECORDS_KEEPER', 'ACTIVE'),
+    (5, 3, 'KNH Organisation Admin', 'hospitaladmin@knh.or.ke', ?, 'ORG_ADMIN', 'ACTIVE')
    ON DUPLICATE KEY UPDATE
     organisation_id = VALUES(organisation_id),
+    email = VALUES(email),
     password_hash = VALUES(password_hash),
     full_name = VALUES(full_name),
     role = VALUES(role),

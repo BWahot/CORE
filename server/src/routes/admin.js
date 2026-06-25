@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { query } from '../db.js';
-import { canManageStaff, requireAuth, requireRole, ROLES } from '../auth.js';
+import { canManageStaff, emailDomain, organisationDomain, requireAuth, requireRole, ROLES } from '../auth.js';
 import { asyncHandler, requireFields } from '../utils.js';
 
 export const adminRouter = Router();
@@ -77,12 +77,31 @@ adminRouter.get('/active-users', requireAuth, requireRole(ROLES.PLATFORM_ADMIN),
   res.json({ organisations });
 }));
 
+adminRouter.get('/organisation-admins', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {
+  // Platform admins see only organisation administrator accounts, joined to their assigned organisation.
+  const admins = await query(
+    `SELECT u.id, u.organisation_id, u.full_name, u.email, u.role, u.status, u.created_at, u.updated_at,
+            o.name AS organisation_name, o.type AS organisation_type, o.email AS organisation_email
+     FROM users u
+     JOIN organisations o ON o.id = u.organisation_id
+     WHERE u.role = :role
+     ORDER BY u.created_at DESC, u.full_name`,
+    { role: ROLES.ORG_ADMIN }
+  );
+  res.json({ admins });
+}));
+
 adminRouter.post('/organisations/:id/admins', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {
   requireFields(req.body, ['full_name', 'email', 'password']);
 
   const organisations = await query('SELECT * FROM organisations WHERE id = :id', { id: req.params.id });
   if (!organisations.length) {
     return res.status(404).json({ message: 'Organisation was not found.' });
+  }
+
+  const organisation = organisations[0];
+  if (!organisationDomain(organisation) || emailDomain(req.body.email) !== organisationDomain(organisation)) {
+    return res.status(400).json({ message: 'Organisation administrators must use the registered organisation email domain.' });
   }
 
   const passwordHash = await bcrypt.hash(req.body.password, 10);
@@ -108,6 +127,59 @@ adminRouter.post('/organisations/:id/admins', requireAuth, requireRole(ROLES.PLA
     { id: result.insertId }
   );
   res.status(201).json({ user });
+}));
+
+adminRouter.patch('/organisation-admins/:id', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {
+  const users = await query('SELECT * FROM users WHERE id = :id AND role = :role', { id: req.params.id, role: ROLES.ORG_ADMIN });
+
+  if (!users.length) {
+    return res.status(404).json({ message: 'Organisation administrator was not found.' });
+  }
+
+  const organisationId = req.body.organisation_id || users[0].organisation_id;
+  const organisations = await query('SELECT * FROM organisations WHERE id = :id', { id: organisationId });
+  if (!organisations.length) {
+    return res.status(404).json({ message: 'Assigned organisation was not found.' });
+  }
+
+  const organisation = organisations[0];
+  if (req.body.email && (!organisationDomain(organisation) || emailDomain(req.body.email) !== organisationDomain(organisation))) {
+    return res.status(400).json({ message: 'Organisation administrators must use the registered organisation email domain.' });
+  }
+
+  // Keep platform edits constrained to organisation-admin profile fields.
+  await query(
+    `UPDATE users
+     SET organisation_id = :organisation_id,
+         full_name = COALESCE(:full_name, full_name),
+         email = COALESCE(:email, email),
+         status = COALESCE(:status, status)
+     WHERE id = :id AND role = :role`,
+    {
+      id: req.params.id,
+      role: ROLES.ORG_ADMIN,
+      organisation_id: organisationId,
+      full_name: req.body.full_name || null,
+      email: req.body.email || null,
+      status: req.body.status || null
+    }
+  );
+
+  await query(
+    `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details)
+     VALUES (:userId, 'UPDATE_ORG_ADMIN', 'user', :entityId, JSON_OBJECT('organisation_id', :organisationId, 'status', :status))`,
+    { userId: req.user.id, entityId: req.params.id, organisationId, status: req.body.status || null }
+  );
+
+  const [user] = await query(
+    `SELECT u.id, u.organisation_id, u.full_name, u.email, u.role, u.status, u.created_at, u.updated_at,
+            o.name AS organisation_name, o.type AS organisation_type, o.email AS organisation_email
+     FROM users u
+     JOIN organisations o ON o.id = u.organisation_id
+     WHERE u.id = :id AND u.role = :role`,
+    { id: req.params.id, role: ROLES.ORG_ADMIN }
+  );
+  res.json({ user });
 }));
 
 adminRouter.get('/staff', requireAuth, requireRole(ROLES.ORG_ADMIN), asyncHandler(async (req, res) => {
@@ -136,6 +208,10 @@ adminRouter.post('/staff', requireAuth, requireRole(ROLES.ORG_ADMIN), asyncHandl
     return res.status(403).json({ message: 'This role is not available for your organisation type.' });
   }
 
+  if (!organisationDomain({ email: req.user.organisation_email }) || emailDomain(req.body.email) !== organisationDomain({ email: req.user.organisation_email })) {
+    return res.status(400).json({ message: 'Staff users must use the registered organisation email domain.' });
+  }
+
   const passwordHash = await bcrypt.hash(req.body.password, 10);
   const result = await query(
     `INSERT INTO users (organisation_id, full_name, email, password_hash, role, status)
@@ -161,6 +237,18 @@ adminRouter.patch('/staff/:id', requireAuth, requireRole(ROLES.ORG_ADMIN), async
 
   if (!users.length || !canManageStaff(req.user, users[0].organisation_id)) {
     return res.status(403).json({ message: 'You cannot manage this staff account.' });
+  }
+
+  const allowedRoles = req.user.organisation_type === 'NGO'
+    ? [ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER]
+    : [ROLES.ORG_ADMIN, ROLES.HOSPITAL_RECORDS_KEEPER];
+
+  if (req.body.role && !allowedRoles.includes(req.body.role)) {
+    return res.status(403).json({ message: 'This role is not available for your organisation type.' });
+  }
+
+  if (req.body.email && (!organisationDomain({ email: req.user.organisation_email }) || emailDomain(req.body.email) !== organisationDomain({ email: req.user.organisation_email }))) {
+    return res.status(400).json({ message: 'Staff users must use the registered organisation email domain.' });
   }
 
   const updatePassword = req.body.password

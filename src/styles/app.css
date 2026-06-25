@@ -100,7 +100,6 @@ textarea {
 }
 
 .primary,
-.demo-grid button,
 .button-row button,
 .nav,
 .toast {
@@ -117,19 +116,6 @@ textarea {
   color: #fff;
   background: var(--teal);
   font-weight: 750;
-}
-
-.demo-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.demo-grid button {
-  padding: 10px;
-  background: #e8eef0;
-  color: #23313b;
 }
 
 .alert.error {
@@ -294,6 +280,50 @@ nav {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
   gap: 18px;
+}
+
+.accordion-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.collapsible-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.collapsible-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 0;
+  padding: 16px 18px;
+  color: var(--ink);
+  background: #fff;
+  text-align: left;
+}
+
+.collapsible-toggle strong,
+.collapsible-toggle small {
+  display: block;
+}
+
+.collapsible-toggle small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.collapsible-toggle:hover {
+  background: #f8fbfb;
+}
+
+.collapsible-body {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--line);
 }
 
 .management-grid {

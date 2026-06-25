@@ -2,8 +2,8 @@
 -- Use `npm run db:seed` to load demo data.
 -- The seed script generates bcrypt password hashes at runtime and creates:
 --   platform@demo.test
---   orgadmin@demo.test
---   ngo@demo.test
---   hospital@demo.test
---   hospitaladmin@demo.test
+--   orgadmin@hopebridge.or.ke
+--   ngo@hopebridge.or.ke
+--   hospital@knh.or.ke
+--   hospitaladmin@knh.or.ke
 -- All demo accounts use password123.

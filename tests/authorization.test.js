@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canManageStaff, referralScopeWhere, ROLES } from '../server/src/auth.js';
+import { canManageStaff, emailDomain, expectedOrganisationRole, organisationDomain, referralScopeWhere, ROLES } from '../server/src/auth.js';
 import {
   ALL_AVAILABLE_REPORT,
   availableReportsFor,
@@ -21,6 +21,16 @@ function user(role, organisationId = null, organisationType = null) {
 test('platform admin cannot receive referral scope', () => {
   const scope = referralScopeWhere(user(ROLES.PLATFORM_ADMIN));
   assert.equal(scope.clause, '1 = 0');
+});
+
+test('email domains are normalised for organisation matching', () => {
+  assert.equal(emailDomain('Social.Worker@HopeBridge.or.ke'), 'hopebridge.or.ke');
+  assert.equal(organisationDomain({ email: 'records@KNH.or.ke' }), 'knh.or.ke');
+});
+
+test('organisation type determines the operational role', () => {
+  assert.equal(expectedOrganisationRole('NGO'), ROLES.NGO_SOCIAL_WORKER);
+  assert.equal(expectedOrganisationRole('HOSPITAL'), ROLES.HOSPITAL_RECORDS_KEEPER);
 });
 
 test('organisation admin cannot receive referral scope', () => {

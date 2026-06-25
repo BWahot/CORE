@@ -115,10 +115,10 @@ All demo accounts use `password123`.
 | Role | Email |
 | --- | --- |
 | Platform Administrator | `platform@demo.test` |
-| NGO Organisation Administrator | `orgadmin@demo.test` |
-| Hospital Organisation Administrator | `hospitaladmin@demo.test` |
-| NGO Social Worker | `ngo@demo.test` |
-| Hospital Records Keeper | `hospital@demo.test` |
+| NGO Organisation Administrator | `orgadmin@hopebridge.or.ke` |
+| Hospital Organisation Administrator | `hospitaladmin@knh.or.ke` |
+| NGO Social Worker | `ngo@hopebridge.or.ke` |
+| Hospital Records Keeper | `hospital@knh.or.ke` |
 
 6. Start the API and frontend together.
 
@@ -179,7 +179,9 @@ npm run preview
 | `GET` | `/api/admin/organisations` | Platform admin organisation directory |
 | `POST` | `/api/admin/organisations` | Platform admin creates NGO or hospital |
 | `PATCH` | `/api/admin/organisations/:id` | Platform admin edits or changes organisation status |
+| `GET` | `/api/admin/organisation-admins` | Platform admin lists organisation administrators |
 | `POST` | `/api/admin/organisations/:id/admins` | Platform admin creates first organisation admin |
+| `PATCH` | `/api/admin/organisation-admins/:id` | Platform admin edits organisation administrator details |
 | `GET` | `/api/admin/staff` | Organisation admin lists own staff |
 | `POST` | `/api/admin/staff` | Organisation admin creates own staff user |
 | `PATCH` | `/api/admin/staff/:id` | Organisation admin edits own staff user |

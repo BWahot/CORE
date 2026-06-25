@@ -4,6 +4,8 @@ import {
   Activity,
   Bell,
   Building2,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   ClipboardList,
   FileText,
@@ -71,6 +73,49 @@ const navItems = [
   { id: 'reports', label: 'Reports', icon: FileText, roles: [ROLES.PLATFORM_ADMIN, ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] }
 ];
 
+function isAllowedView(viewId, user) {
+  if (!user) return false;
+  const item = navItems.find((navItem) => navItem.id === viewId);
+  return Boolean(item && (!item.roles || item.roles.includes(user.role)));
+}
+
+function defaultViewForUser(user) {
+  return isAllowedView('dashboard', user) ? 'dashboard' : navItems.find((item) => isAllowedView(item.id, user))?.id || 'dashboard';
+}
+
+function useExclusiveExpansion(initialPanel) {
+  const [expandedPanel, setExpandedPanel] = useState(initialPanel);
+
+  // Keeps only one panel open; optional fallback opens another panel when the current one is clicked again.
+  function togglePanel(panelId, fallbackPanel = null) {
+    setExpandedPanel((current) => (current === panelId ? fallbackPanel : panelId));
+  }
+
+  return { expandedPanel, togglePanel };
+}
+
+function CollapsiblePanel({ id, title, summary, expandedPanel, onToggle, fallbackPanel, children }) {
+  const isExpanded = expandedPanel === id;
+  const Icon = isExpanded ? ChevronDown : ChevronRight;
+
+  return (
+    <section className="panel collapsible-panel">
+      <button className="collapsible-toggle" type="button" onClick={() => onToggle(id, fallbackPanel)} aria-expanded={isExpanded}>
+        <span>
+          <strong>{title}</strong>
+          {summary && <small>{summary}</small>}
+        </span>
+        <Icon size={18} aria-hidden="true" />
+      </button>
+      {isExpanded && <div className="collapsible-body">{children}</div>}
+    </section>
+  );
+}
+
+function formatDate(value) {
+  return value ? new Date(value).toLocaleDateString() : 'Not available';
+}
+
 function emptyData() {
   return {
     dashboard: null,
@@ -81,6 +126,7 @@ function emptyData() {
     reportOptions: { reports: [], output_formats: [] },
     admin: {
       organisations: [],
+      organisationAdmins: [],
       staff: [],
       serviceCategories: [],
       referralCategories: [],
@@ -115,14 +161,16 @@ function useAppData(user) {
       next.reportOptions = reportOptions;
 
       if (user.role === ROLES.PLATFORM_ADMIN) {
-        const [organisations, categories, auditLogs, systemStatistics, activeUsers] = await Promise.all([
+        const [organisations, organisationAdmins, categories, auditLogs, systemStatistics, activeUsers] = await Promise.all([
           api('/admin/organisations'),
+          api('/admin/organisation-admins'),
           api('/admin/service-categories'),
           api('/admin/audit-logs'),
           api('/admin/system-statistics'),
           api('/admin/active-users')
         ]);
         next.admin.organisations = organisations.organisations;
+        next.admin.organisationAdmins = organisationAdmins.admins;
         next.admin.serviceCategories = categories.serviceCategories;
         next.admin.referralCategories = categories.referralCategories;
         next.admin.auditLogs = auditLogs.logs;
@@ -167,7 +215,7 @@ function useAppData(user) {
 }
 
 function Login({ onLogin }) {
-  const [form, setForm] = useState({ email: 'ngo@demo.test', password: 'password123' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -193,17 +241,11 @@ function Login({ onLogin }) {
         <h1>ReferralLink</h1>
         <p>Feedback and referral tracking for NGOs and hospitals.</p>
         <form onSubmit={submit} className="stack">
-          <label>Email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-          <label>Password<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+          <label>Email<input type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+          <label>Password<input type="password" required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
           {error && <div className="alert error">{error}</div>}
           <button className="primary" type="submit" disabled={busy}><ShieldCheck size={18} aria-hidden="true" />{busy ? 'Signing in...' : 'Sign in'}</button>
         </form>
-        <div className="demo-grid" aria-label="Demo accounts">
-          <button type="button" onClick={() => setForm({ email: 'platform@demo.test', password: 'password123' })}>Platform</button>
-          <button type="button" onClick={() => setForm({ email: 'orgadmin@demo.test', password: 'password123' })}>Org Admin</button>
-          <button type="button" onClick={() => setForm({ email: 'ngo@demo.test', password: 'password123' })}>NGO</button>
-          <button type="button" onClick={() => setForm({ email: 'hospital@demo.test', password: 'password123' })}>Hospital</button>
-        </div>
       </section>
     </main>
   );
@@ -329,6 +371,7 @@ function ReferralTable({ referrals, compact }) {
 }
 
 function Organisations({ organisations, refresh, setNotice }) {
+  const { expandedPanel, togglePanel } = useExclusiveExpansion('directory');
   const [form, setForm] = useState({ name: '', type: 'NGO', email: '', phone: '', location: '', status: 'ACTIVE' });
   async function submit(event) {
     event.preventDefault();
@@ -345,17 +388,20 @@ function Organisations({ organisations, refresh, setNotice }) {
   return (
     <section className="page">
       <h1>Organisations</h1>
-      <div className="content-grid">
-        <form className="panel stack" onSubmit={submit}>
-          <h3>Add organisation</h3>
-          <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-          <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option>NGO</option><option>HOSPITAL</option></select></label>
-          <label>Email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-          <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
-          <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
-          <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add organisation</button>
-        </form>
-        <section className="panel"><h3>Directory</h3><OrganisationTable organisations={organisations} onSave={saveOrganisation} /></section>
+      <div className="accordion-stack">
+        <CollapsiblePanel id="add" title="Add organisation" summary="Create an NGO or hospital record" expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="directory">
+          <form className="stack" onSubmit={submit}>
+            <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+            <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option>NGO</option><option>HOSPITAL</option></select></label>
+            <label>Email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+            <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+            <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
+            <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add organisation</button>
+          </form>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="directory" title="Directory" summary={`${organisations.length} organisation${organisations.length === 1 ? '' : 's'}`} expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="add">
+          <OrganisationTable organisations={organisations} onSave={saveOrganisation} />
+        </CollapsiblePanel>
       </div>
     </section>
   );
@@ -365,6 +411,7 @@ function OrganisationTable({ organisations, onSave }) {
   return (
     <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Status</th><th>Actions</th></tr></thead><tbody>
       {organisations.map((organisation) => <OrganisationRow key={organisation.id} organisation={organisation} onSave={onSave} />)}
+      {!organisations.length && <tr><td colSpan="5" className="empty">No organisations have been added yet.</td></tr>}
     </tbody></table></div>
   );
 }
@@ -382,7 +429,8 @@ function OrganisationRow({ organisation, onSave }) {
   );
 }
 
-function OrganisationAdmins({ organisations, refresh, setNotice }) {
+function OrganisationAdmins({ organisations, admins, loading, refresh, setNotice }) {
+  const { expandedPanel, togglePanel } = useExclusiveExpansion('directory');
   const [form, setForm] = useState({ organisation_id: '', full_name: '', email: '', password: 'password123' });
   async function submit(event) {
     event.preventDefault();
@@ -391,21 +439,73 @@ function OrganisationAdmins({ organisations, refresh, setNotice }) {
     setNotice('Organisation administrator created.');
     refresh();
   }
+  async function saveAdmin(admin) {
+    await api(`/admin/organisation-admins/${admin.id}`, {
+      method: 'PATCH',
+      body: {
+        organisation_id: admin.organisation_id,
+        full_name: admin.full_name,
+        email: admin.email,
+        status: admin.status
+      }
+    });
+    setNotice('Organisation administrator updated.');
+    refresh();
+  }
   return (
     <section className="page">
       <h1>Organisation Admins</h1>
-      <form className="panel form-grid" onSubmit={submit}>
-        <label className="wide">Organisation<select required value={form.organisation_id} onChange={(event) => setForm({ ...form, organisation_id: event.target.value })}><option value="">Select organisation</option>{organisations.map((org) => <option key={org.id} value={org.id}>{org.name} ({org.type})</option>)}</select></label>
-        <label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label>
-        <label>Email<input required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-        <label>Password<input required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-        <button className="primary wide" type="submit"><UserCog size={18} aria-hidden="true" />Create admin</button>
-      </form>
+      <div className="accordion-stack">
+        <CollapsiblePanel id="create" title="Create administrator" summary="Assign an administrator to an organisation" expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="directory">
+          <form className="form-grid" onSubmit={submit}>
+            <label className="wide">Organisation<select required value={form.organisation_id} onChange={(event) => setForm({ ...form, organisation_id: event.target.value })}><option value="">Select organisation</option>{organisations.map((org) => <option key={org.id} value={org.id}>{org.name} ({org.type})</option>)}</select></label>
+            <label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label>
+            <label>Email<input required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+            <label>Password<input required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+            <button className="primary wide" type="submit"><UserCog size={18} aria-hidden="true" />Create admin</button>
+          </form>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="directory" title="Administrator directory" summary={`${admins.length} administrator${admins.length === 1 ? '' : 's'}`} expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="create">
+          {loading ? <div className="empty">Loading organisation administrators...</div> : <OrganisationAdminTable admins={admins} organisations={organisations} onSave={saveAdmin} />}
+        </CollapsiblePanel>
+      </div>
     </section>
   );
 }
 
-function StaffUsers({ staff, user, refresh, setNotice }) {
+function OrganisationAdminTable({ admins, organisations, onSave }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Organisation</th><th>Type</th><th>Status</th><th>Date added</th><th>Actions</th></tr></thead>
+        <tbody>
+          {admins.map((admin) => <OrganisationAdminRow key={admin.id} admin={admin} organisations={organisations} onSave={onSave} />)}
+          {!admins.length && <tr><td colSpan="7" className="empty">No organisation administrators have been added yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function OrganisationAdminRow({ admin, organisations, onSave }) {
+  const [draft, setDraft] = useState({ ...admin });
+  const selectedOrganisation = organisations.find((organisation) => Number(organisation.id) === Number(draft.organisation_id));
+
+  return (
+    <tr>
+      <td><input value={draft.full_name || ''} onChange={(event) => setDraft({ ...draft, full_name: event.target.value })} /></td>
+      <td><input value={draft.email || ''} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></td>
+      <td><select value={draft.organisation_id || ''} onChange={(event) => setDraft({ ...draft, organisation_id: event.target.value })}>{organisations.map((organisation) => <option key={organisation.id} value={organisation.id}>{organisation.name}</option>)}</select></td>
+      <td>{selectedOrganisation?.type || admin.organisation_type || 'Not available'}</td>
+      <td><select value={draft.status || 'ACTIVE'} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option>ACTIVE</option><option>INACTIVE</option></select></td>
+      <td>{formatDate(admin.created_at)}</td>
+      <td><button onClick={() => onSave(draft)}>Save</button></td>
+    </tr>
+  );
+}
+
+function StaffUsers({ staff, user, loading, refresh, setNotice }) {
+  const { expandedPanel, togglePanel } = useExclusiveExpansion('directory');
   const allowedRoles = user.organisation_type === 'NGO' ? [ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER] : [ROLES.ORG_ADMIN, ROLES.HOSPITAL_RECORDS_KEEPER];
   const [form, setForm] = useState({ full_name: '', email: '', password: 'password123', role: allowedRoles[1] || ROLES.ORG_ADMIN });
   async function submit(event) {
@@ -422,18 +522,35 @@ function StaffUsers({ staff, user, refresh, setNotice }) {
   return (
     <section className="page">
       <h1>Staff Users</h1>
-      <div className="content-grid">
-        <form className="panel stack" onSubmit={submit}>
-          <h3>Add staff</h3>
-          <label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label>
-          <label>Email<input required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-          <label>Password<input required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-          <label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{allowedRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
-          <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add staff</button>
-        </form>
-        <section className="panel"><h3>Staff directory</h3><div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{staff.map((person) => <tr key={person.id}><td>{person.full_name}</td><td>{person.email}</td><td>{person.role}</td><td><span className={statusClass[person.status] || 'status'}>{person.status}</span></td><td><button onClick={() => toggleStaff(person)}>{person.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div></section>
+      <div className="accordion-stack">
+        <CollapsiblePanel id="add" title="Add staff" summary={`Roles available for ${user.organisation_type || 'this organisation'}`} expandedPanel={expandedPanel} onToggle={togglePanel}>
+          <form className="stack" onSubmit={submit}>
+            <label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label>
+            <label>Email<input required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+            <label>Password<input required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+            <label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{allowedRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
+            <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add staff</button>
+          </form>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="directory" title="Staff directory" summary={`${staff.length} user${staff.length === 1 ? '' : 's'} in your organisation`} expandedPanel={expandedPanel} onToggle={togglePanel}>
+          {loading ? <div className="empty">Loading staff users...</div> : <StaffTable staff={staff} onToggleStaff={toggleStaff} />}
+        </CollapsiblePanel>
       </div>
     </section>
+  );
+}
+
+function StaffTable({ staff, onToggleStaff }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Date added</th><th>Actions</th></tr></thead>
+        <tbody>
+          {staff.map((person) => <tr key={person.id}><td>{person.full_name}</td><td>{person.email}</td><td>{person.role}</td><td><span className={statusClass[person.status] || 'status'}>{person.status}</span></td><td>{formatDate(person.created_at)}</td><td><button onClick={() => onToggleStaff(person)}>{person.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button></td></tr>)}
+          {!staff.length && <tr><td colSpan="6" className="empty">No staff users have been added for your organisation yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -712,17 +829,22 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    const allowed = navItems.filter((item) => !item.roles || item.roles.includes(user.role)).map((item) => item.id);
-    if (!allowed.includes(active)) setActive('dashboard');
+    if (!isAllowedView(active, user)) setActive(defaultViewForUser(user));
   }, [user?.role, active]);
+
+  function handleLogin(nextUser) {
+    setUser(nextUser);
+    setActive(defaultViewForUser(nextUser));
+  }
 
   const view = useMemo(() => {
     const props = { refresh, setNotice };
-    switch (active) {
+    const safeActive = isAllowedView(active, user) ? active : defaultViewForUser(user);
+    switch (safeActive) {
       case 'organisations':
         return <Organisations organisations={data.admin.organisations} {...props} />;
       case 'organisation-admins':
-        return <OrganisationAdmins organisations={data.admin.organisations} {...props} />;
+        return <OrganisationAdmins organisations={data.admin.organisations} admins={data.admin.organisationAdmins} loading={loading} {...props} />;
       case 'service-categories':
         return <ServiceCategories categories={data.admin.serviceCategories} {...props} />;
       case 'audit-logs':
@@ -734,7 +856,7 @@ function App() {
       case 'settings':
         return <Reports reportOptions={data.reportOptions} lookups={data.lookups} user={user} />;
       case 'staff-users':
-        return <StaffUsers staff={data.admin.staff} user={user} {...props} />;
+        return <StaffUsers staff={data.admin.staff} user={user} loading={loading} {...props} />;
       case 'org-roles':
         return <SimpleRows title="Roles within Organisation" rows={(user.organisation_type === 'NGO' ? [ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER] : [ROLES.ORG_ADMIN, ROLES.HOSPITAL_RECORDS_KEEPER]).map((role) => ({ role }))} columns={[{ key: 'role', label: 'Role' }]} />;
       case 'org-profile':
@@ -758,7 +880,7 @@ function App() {
     }
   }, [active, data, user]);
 
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <Login onLogin={handleLogin} />;
 
   function logout() {
     clearSession();

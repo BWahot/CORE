@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { query } from '../db.js';
-import { requireAuth, signUser } from '../auth.js';
+import { requireAuth, signUser, validateAuthenticatedUser } from '../auth.js';
 import { asyncHandler, requireFields } from '../utils.js';
 
 export const authRouter = Router();
@@ -13,6 +13,7 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
     `SELECT users.id, users.full_name, users.email, users.password_hash, users.role, users.organisation_id,
             organisations.name AS organisation_name,
             organisations.type AS organisation_type,
+            organisations.email AS organisation_email,
             organisations.status AS organisation_status
      FROM users
      LEFT JOIN organisations ON users.organisation_id = organisations.id
@@ -32,10 +33,14 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
   }
 
   delete user.password_hash;
+  const validation = await validateAuthenticatedUser(user);
+  if (!validation.ok) {
+    return res.status(validation.status).json({ message: validation.message });
+  }
 
   res.json({
-    token: signUser(user),
-    user
+    token: signUser(validation.user),
+    user: validation.user
   });
 }));
 
