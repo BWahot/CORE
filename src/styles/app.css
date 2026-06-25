@@ -338,15 +338,23 @@ nav {
   grid-template-columns: 28px 1fr;
   gap: 12px;
   align-items: start;
+  width: 100%;
   padding: 16px;
+  color: var(--ink);
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 8px 18px rgba(20, 32, 42, 0.04);
+  text-align: left;
 }
 
 .management-card svg {
   color: var(--teal);
+}
+
+.management-card:hover {
+  border-color: #b7cbd1;
+  background: #f8fbfb;
 }
 
 .management-card strong {

@@ -16,7 +16,6 @@ import {
   Plus,
   Search,
   Send,
-  Settings,
   ShieldCheck,
   SlidersHorizontal,
   UserCog,
@@ -59,8 +58,6 @@ const navItems = [
   { id: 'service-categories', label: 'Service Categories', icon: SlidersHorizontal, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'audit-logs', label: 'Audit Logs', icon: FileText, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'active-users', label: 'Active Users', icon: UsersRound, roles: [ROLES.PLATFORM_ADMIN] },
-  { id: 'system-statistics', label: 'System Statistics', icon: Activity, roles: [ROLES.PLATFORM_ADMIN] },
-  { id: 'settings', label: 'Settings', icon: Settings, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'staff-users', label: 'Staff Users', icon: UsersRound, roles: [ROLES.ORG_ADMIN] },
   { id: 'org-roles', label: 'Roles', icon: ShieldCheck, roles: [ROLES.ORG_ADMIN] },
   { id: 'org-profile', label: 'Organisation Profile', icon: Building2, roles: [ROLES.ORG_ADMIN] },
@@ -280,7 +277,7 @@ function Metric({ label, value, icon: Icon, tone }) {
   return <article className={`metric ${tone || ''}`}><Icon size={22} aria-hidden="true" /><div><strong>{value}</strong><span>{label}</span></div></article>;
 }
 
-function Dashboard({ dashboard }) {
+function Dashboard({ dashboard, onNavigate }) {
   const statusRows = dashboard?.metrics?.byStatus || [];
   const mode = dashboard?.mode || 'operational';
   return (
@@ -294,12 +291,11 @@ function Dashboard({ dashboard }) {
             <Metric label="Total referrals" value={dashboard.metrics.totalReferrals || 0} icon={ClipboardList} tone="warm" />
           </div>
           <div className="management-grid">
-            <ManagementCard icon={Building2} title="Organisations" text="Add, edit, deactivate, and archive NGOs and hospitals." />
-            <ManagementCard icon={UserCog} title="Organisation admins" text="Create the first administrator account for each organisation." />
-            <ManagementCard icon={UsersRound} title="Active users" text="View active user counts grouped by organisation." />
-            <ManagementCard icon={SlidersHorizontal} title="Service categories" text="Manage referral service types used across the platform." />
-            <ManagementCard icon={FileText} title="Audit logs" text="Review system access and administrative actions." />
-            <ManagementCard icon={Activity} title="System statistics" text="Track organisation count, active users, and total referral count only." />
+            <ManagementCard icon={Building2} title="Organisations" text="Add, edit, deactivate, and archive NGOs and hospitals." onClick={() => onNavigate('organisations')} />
+            <ManagementCard icon={UserCog} title="Organisation admins" text="Create the first administrator account for each organisation." onClick={() => onNavigate('organisation-admins')} />
+            <ManagementCard icon={UsersRound} title="Active users" text="View active user counts grouped by organisation." onClick={() => onNavigate('active-users')} />
+            <ManagementCard icon={SlidersHorizontal} title="Service categories" text="Manage referral service types used across the platform." onClick={() => onNavigate('service-categories')} />
+            <ManagementCard icon={FileText} title="Audit logs" text="Review system access and administrative actions." onClick={() => onNavigate('audit-logs')} />
           </div>
           <section className="panel">
             <h3>Active users by organisation</h3>
@@ -337,8 +333,8 @@ function Dashboard({ dashboard }) {
   );
 }
 
-function ManagementCard({ icon: Icon, title, text }) {
-  return <article className="management-card"><Icon size={22} aria-hidden="true" /><div><strong>{title}</strong><p>{text}</p></div></article>;
+function ManagementCard({ icon: Icon, title, text, onClick }) {
+  return <button className="management-card" type="button" onClick={onClick}><Icon size={22} aria-hidden="true" /><span><strong>{title}</strong><p>{text}</p></span></button>;
 }
 
 function NotificationPanel({ notifications }) {
@@ -555,6 +551,7 @@ function StaffTable({ staff, onToggleStaff }) {
 }
 
 function ServiceCategories({ categories, refresh, setNotice }) {
+  const { expandedPanel, togglePanel } = useExclusiveExpansion('types');
   const [form, setForm] = useState({ name: '', description: '' });
 
   async function submit(event) {
@@ -573,17 +570,17 @@ function ServiceCategories({ categories, refresh, setNotice }) {
   return (
     <section className="page">
       <h1>Service Categories</h1>
-      <div className="content-grid">
-        <form className="panel stack" onSubmit={submit}>
-          <h3>Add referral service type</h3>
-          <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-          <label>Description<textarea rows="4" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-          <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add service type</button>
-        </form>
-        <section className="panel">
-          <h3>Service types</h3>
-          <div className="table-wrap"><table><thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead><tbody>{categories.map((category) => <tr key={category.id}><td>{category.name}</td><td>{category.description}</td><td>{category.is_active ? <span className="status completed">Active</span> : <span className="status pending">Inactive</span>}</td><td><button onClick={() => toggle(category)}>{category.is_active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div>
-        </section>
+      <div className="accordion-stack">
+        <CollapsiblePanel id="add" title="Add referral service type" summary="Create a service option used in referrals" expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="types">
+          <form className="stack" onSubmit={submit}>
+            <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+            <label>Description<textarea rows="4" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+            <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add service type</button>
+          </form>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="types" title="Service types" summary={`${categories.length} service type${categories.length === 1 ? '' : 's'}`} expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="add">
+          <div className="table-wrap"><table><thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead><tbody>{categories.map((category) => <tr key={category.id}><td>{category.name}</td><td>{category.description}</td><td>{category.is_active ? <span className="status completed">Active</span> : <span className="status pending">Inactive</span>}</td><td><button onClick={() => toggle(category)}>{category.is_active ? 'Deactivate' : 'Activate'}</button></td></tr>)}{!categories.length && <tr><td colSpan="4" className="empty">No service types have been added yet.</td></tr>}</tbody></table></div>
+        </CollapsiblePanel>
       </div>
     </section>
   );
@@ -851,10 +848,6 @@ function App() {
         return <SimpleRows title="Audit Logs" rows={data.admin.auditLogs} columns={[{ key: 'created_at', label: 'Time' }, { key: 'actor_name', label: 'Actor' }, { key: 'action', label: 'Action' }, { key: 'entity_type', label: 'Entity' }]} />;
       case 'active-users':
         return <SimpleRows title="Active Users by Organisation" rows={data.admin.activeUsers} columns={[{ key: 'name', label: 'Organisation' }, { key: 'type', label: 'Type' }, { key: 'status', label: 'Status' }, { key: 'active_users', label: 'Active users' }]} />;
-      case 'system-statistics':
-        return <SimpleRows title="System Statistics" rows={[data.admin.systemStatistics || {}]} columns={[{ key: 'totalOrganisations', label: 'Organisations' }, { key: 'activeUsers', label: 'Active users' }, { key: 'totalReferrals', label: 'Total referrals' }]} />;
-      case 'settings':
-        return <Reports reportOptions={data.reportOptions} lookups={data.lookups} user={user} />;
       case 'staff-users':
         return <StaffUsers staff={data.admin.staff} user={user} loading={loading} {...props} />;
       case 'org-roles':
@@ -876,7 +869,7 @@ function App() {
       case 'reports':
         return <Reports reportOptions={data.reportOptions} lookups={data.lookups} user={user} />;
       default:
-        return <Dashboard dashboard={data.dashboard} />;
+        return <Dashboard dashboard={data.dashboard} onNavigate={setActive} />;
     }
   }, [active, data, user]);
 
