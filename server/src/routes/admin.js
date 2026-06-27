@@ -356,6 +356,40 @@ adminRouter.get('/organisation-profile', requireAuth, requireRole(ROLES.ORG_ADMI
   res.json({ organisation });
 }));
 
+adminRouter.patch('/organisation-profile', requireAuth, requireRole(ROLES.ORG_ADMIN), asyncHandler(async (req, res) => {
+  requireFields(req.body, ['name', 'email']);
+
+  if (req.body.email && emailDomain(req.body.email) !== emailDomain(req.user.email)) {
+    return res.status(400).json({ message: 'Organisation contact email must use your registered organisation domain.' });
+  }
+
+  // Organisation admins may update only their own organisation profile, never another organisation by id.
+  await query(
+    `UPDATE organisations
+     SET name = :name,
+         email = :email,
+         phone = :phone,
+         location = :location
+     WHERE id = :id`,
+    {
+      id: req.user.organisation_id,
+      name: req.body.name,
+      email: req.body.email,
+      phone: req.body.phone || null,
+      location: req.body.location || null
+    }
+  );
+
+  await query(
+    `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details)
+     VALUES (:userId, 'UPDATE_ORGANISATION_PROFILE', 'organisation', :entityId, JSON_OBJECT('name', :name))`,
+    { userId: req.user.id, entityId: req.user.organisation_id, name: req.body.name }
+  );
+
+  const [organisation] = await query('SELECT * FROM organisations WHERE id = :id', { id: req.user.organisation_id });
+  res.json({ organisation });
+}));
+
 adminRouter.get('/organisation-reports', requireAuth, requireRole(ROLES.ORG_ADMIN), asyncHandler(async (req, res) => {
   const [staff, sent, received] = await Promise.all([
     query('SELECT role, status, COUNT(*) AS total FROM users WHERE organisation_id = :organisationId GROUP BY role, status', { organisationId: req.user.organisation_id }),

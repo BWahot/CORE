@@ -251,8 +251,11 @@ nav {
   display: flex;
   align-items: center;
   gap: 14px;
+  width: 100%;
   padding: 18px;
+  color: var(--ink);
   border-top: 4px solid var(--teal);
+  text-align: left;
 }
 
 .metric.warm {
@@ -270,10 +273,17 @@ nav {
 .metric strong {
   display: block;
   font-size: 28px;
+  color: var(--ink);
 }
 
 .metric span {
   color: var(--muted);
+}
+
+.metric.interactive:hover,
+.shortcut-card:hover {
+  border-color: #b7cbd1;
+  background: #f8fbfb;
 }
 
 .content-grid {
@@ -376,6 +386,27 @@ nav {
   font-size: 18px;
 }
 
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.panel-heading h3 {
+  margin: 0;
+}
+
+.panel-heading button {
+  border: 0;
+  padding: 8px 10px;
+  color: var(--blue);
+  background: #eff6ff;
+  border-radius: 6px;
+  font-weight: 750;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -441,6 +472,7 @@ tr:hover td {
 .notice-list,
 .profile-list,
 .inbox-list,
+.recent-list,
 .bars {
   display: grid;
   gap: 12px;
@@ -449,6 +481,7 @@ tr:hover td {
 .notice-item,
 .profile-item,
 .inbox-item,
+.recent-item,
 .feedback-card,
 .donor {
   border: 1px solid var(--line);
@@ -461,6 +494,46 @@ tr:hover td {
   display: grid;
   grid-template-columns: 22px 1fr;
   gap: 10px;
+  width: 100%;
+  color: var(--ink);
+  text-align: left;
+}
+
+.notification-panel {
+  width: 100%;
+  color: var(--ink);
+  text-align: left;
+}
+
+.notification-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 8px;
+  color: #274452;
+  background: #e7f1f0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.recent-item p,
+.recent-item small {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.recent-item > div:last-child {
+  display: grid;
+  justify-items: end;
 }
 
 .notice-item p,
@@ -485,6 +558,22 @@ tr:hover td {
 .search-box input {
   border: 0;
   padding-left: 0;
+}
+
+.referral-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  width: min(560px, 100%);
+}
+
+.referral-tools .search-box {
+  flex: 1 1 260px;
+}
+
+.referral-tools select {
+  width: min(190px, 100%);
 }
 
 .form-grid {
@@ -541,6 +630,36 @@ tr:hover td {
   padding: 9px 11px;
   background: #e7eef2;
   color: #24343d;
+}
+
+.button-row .primary {
+  color: #fff;
+  background: var(--teal);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.detail-grid div {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfb;
+}
+
+.detail-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.detail-grid strong {
+  overflow-wrap: anywhere;
 }
 
 .inbox-item {
@@ -630,6 +749,7 @@ tr:hover td {
 
   .metrics-grid,
   .content-grid,
+  .detail-grid,
   .management-grid,
   .donor-grid {
     grid-template-columns: 1fr;

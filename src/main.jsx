@@ -59,9 +59,7 @@ const navItems = [
   { id: 'audit-logs', label: 'Audit Logs', icon: FileText, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'active-users', label: 'Active Users', icon: UsersRound, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'staff-users', label: 'Staff Users', icon: UsersRound, roles: [ROLES.ORG_ADMIN] },
-  { id: 'org-roles', label: 'Roles', icon: ShieldCheck, roles: [ROLES.ORG_ADMIN] },
-  { id: 'org-profile', label: 'Organisation Profile', icon: Building2, roles: [ROLES.ORG_ADMIN] },
-  { id: 'org-reports', label: 'Organisation Reports', icon: FileText, roles: [ROLES.ORG_ADMIN] },
+  { id: 'org-profile', label: 'Profile', icon: Building2, roles: [ROLES.ORG_ADMIN] },
   { id: 'referrals', label: 'Referrals', icon: ClipboardList, roles: [ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] },
   { id: 'new-referral', label: 'New Referral', icon: Plus, roles: [ROLES.NGO_SOCIAL_WORKER] },
   { id: 'hospital-inbox', label: 'Hospital Inbox', icon: Hospital, roles: [ROLES.HOSPITAL_RECORDS_KEEPER] },
@@ -130,8 +128,7 @@ function emptyData() {
       auditLogs: [],
       systemStatistics: null,
       activeUsers: [],
-      organisationProfile: null,
-      organisationReports: null
+      organisationProfile: null
     }
   };
 }
@@ -176,14 +173,12 @@ function useAppData(user) {
       }
 
       if (user.role === ROLES.ORG_ADMIN) {
-        const [staff, profile, orgReports] = await Promise.all([
+        const [staff, profile] = await Promise.all([
           api('/admin/staff'),
-          api('/admin/organisation-profile'),
-          api('/admin/organisation-reports')
+          api('/admin/organisation-profile')
         ]);
         next.admin.staff = staff.staff;
         next.admin.organisationProfile = profile.organisation;
-        next.admin.organisationReports = orgReports;
       }
 
       if ([ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER].includes(user.role)) {
@@ -208,7 +203,17 @@ function useAppData(user) {
     refresh();
   }, [user?.id]);
 
-  return { data, loading, notice, setNotice, refresh };
+  function removeNotification(notificationId) {
+    setData((current) => ({
+      ...current,
+      dashboard: current.dashboard ? {
+        ...current.dashboard,
+        notifications: (current.dashboard.notifications || []).filter((notification) => notification.id !== notificationId)
+      } : current.dashboard
+    }));
+  }
+
+  return { data, loading, notice, setNotice, refresh, removeNotification };
 }
 
 function Login({ onLogin }) {
@@ -273,13 +278,19 @@ function Shell({ user, onLogout, children, active, setActive }) {
   );
 }
 
-function Metric({ label, value, icon: Icon, tone }) {
-  return <article className={`metric ${tone || ''}`}><Icon size={22} aria-hidden="true" /><div><strong>{value}</strong><span>{label}</span></div></article>;
+function Metric({ label, value, icon: Icon, tone, onClick }) {
+  const className = `metric ${tone || ''} ${onClick ? 'interactive' : ''}`;
+  if (onClick) {
+    return <button className={className} type="button" onClick={onClick}><Icon size={22} aria-hidden="true" /><span><strong>{value}</strong><span>{label}</span></span></button>;
+  }
+
+  return <article className={className}><Icon size={22} aria-hidden="true" /><div><strong>{value}</strong><span>{label}</span></div></article>;
 }
 
-function Dashboard({ dashboard, onNavigate }) {
+function Dashboard({ dashboard, onNavigate, onAttendNotification, user, loading }) {
   const statusRows = dashboard?.metrics?.byStatus || [];
   const mode = dashboard?.mode || 'operational';
+  const isHospitalDashboard = user?.role === ROLES.HOSPITAL_RECORDS_KEEPER;
   return (
     <section className="page">
       <div className="title-row"><div><h1>{mode === 'platform' ? 'Platform Dashboard' : mode === 'organisation' ? 'Organisation Dashboard' : 'Referral Dashboard'}</h1></div></div>
@@ -318,14 +329,14 @@ function Dashboard({ dashboard, onNavigate }) {
       {mode === 'operational' && (
         <>
           <div className="metrics-grid">
-            <Metric label="Total referrals" value={dashboard?.metrics?.totalReferrals || 0} icon={ClipboardList} />
-            <Metric label="Urgent open cases" value={dashboard?.metrics?.urgentOpen || 0} icon={Activity} tone="warm" />
-            <Metric label="Pending feedback" value={dashboard?.metrics?.pendingFeedback || 0} icon={Bell} tone="cool" />
-            <Metric label="Completed" value={statusRows.find((row) => row.status === 'Completed')?.total || 0} icon={CheckCircle2} tone="good" />
+            <Metric label="Total referrals" value={dashboard?.metrics?.totalReferrals || 0} icon={ClipboardList} onClick={isHospitalDashboard ? () => onNavigate('referrals') : null} />
+            <Metric label="Urgent open cases" value={dashboard?.metrics?.urgentOpen || 0} icon={Activity} tone="warm" onClick={isHospitalDashboard ? () => onNavigate('hospital-inbox') : null} />
+            <Metric label="Pending feedback" value={dashboard?.metrics?.pendingFeedback || 0} icon={Bell} tone="cool" onClick={isHospitalDashboard ? () => onNavigate('feedback') : null} />
+            <Metric label="Completed" value={statusRows.find((row) => row.status === 'Completed')?.total || 0} icon={CheckCircle2} tone="good" onClick={isHospitalDashboard ? () => onNavigate('referrals') : null} />
           </div>
           <div className="content-grid">
-            <section className="panel"><h3>Recent referrals</h3><ReferralTable referrals={dashboard?.recent || []} compact /></section>
-            <NotificationPanel notifications={dashboard?.notifications || []} />
+            <RecentReferralsPanel referrals={dashboard?.recent || []} loading={loading} onShowMore={() => onNavigate('referrals')} />
+            <NotificationPanel notifications={dashboard?.notifications || []} onAttend={onAttendNotification} onOpen={isHospitalDashboard ? () => onNavigate('hospital-inbox') : null} />
           </div>
         </>
       )}
@@ -337,29 +348,83 @@ function ManagementCard({ icon: Icon, title, text, onClick }) {
   return <button className="management-card" type="button" onClick={onClick}><Icon size={22} aria-hidden="true" /><span><strong>{title}</strong><p>{text}</p></span></button>;
 }
 
-function NotificationPanel({ notifications }) {
+function RecentReferralsPanel({ referrals, loading, onShowMore }) {
   return (
     <section className="panel">
-      <h3>Notifications</h3>
-      <div className="notice-list">
-        {notifications.map((notification) => <div key={notification.id} className="notice-item"><Bell size={16} aria-hidden="true" /><div><strong>{notification.title}</strong><p>{notification.message}</p></div></div>)}
+      <div className="panel-heading">
+        <h3>Recent referrals</h3>
+        <button type="button" onClick={onShowMore}>Show More</button>
       </div>
+      {loading && !referrals.length ? <div className="empty">Loading recent referrals...</div> : (
+        <div className="recent-list">
+          {referrals.map((referral) => (
+            <article className="recent-item" key={referral.id}>
+              <div>
+                <strong>{referral.beneficiary_name || referral.referral_number}</strong>
+                <p>{referral.referral_number} from {referral.ngo_name || 'Unknown organisation'}</p>
+              </div>
+              <div>
+                <span className={statusClass[referral.status] || 'status'}>{referral.status}</span>
+                <small>Received {formatDate(referral.created_at || referral.updated_at)}</small>
+              </div>
+            </article>
+          ))}
+          {!referrals.length && <div className="empty">No recent referrals found.</div>}
+        </div>
+      )}
     </section>
   );
 }
 
-function ReferralTable({ referrals, compact }) {
+function NotificationPanel({ notifications, onAttend, onOpen }) {
+  const unreadNotifications = notifications.filter((notification) => !notification.is_read);
+  const unreadCount = unreadNotifications.length;
+  const countLabel = `${unreadCount} notification${unreadCount === 1 ? '' : 's'}`;
+
+  async function attendNotification(event, notification) {
+    event.stopPropagation();
+    if (onAttend) {
+      const attended = await onAttend(notification.id);
+      if (!attended) return;
+    }
+    if (onOpen) onOpen();
+  }
+
+  const content = (
+    <>
+      <div className="panel-heading">
+        <h3>Notifications</h3>
+        <span className="notification-count">{countLabel}</span>
+      </div>
+      <div className="notice-list">
+        {unreadNotifications.map((notification) => <button key={notification.id} type="button" className="notice-item" onClick={(event) => attendNotification(event, notification)}><Bell size={16} aria-hidden="true" /><span><strong>{notification.title}</strong><p>{notification.message}</p></span></button>)}
+        {!unreadNotifications.length && <div className="empty">No new notifications.</div>}
+      </div>
+    </>
+  );
+
+  if (onOpen) {
+    return <section className="panel notification-panel shortcut-card" role="button" tabIndex="0" onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(); }}>{content}</section>;
+  }
+
+  return (
+    <section className="panel notification-panel">{content}</section>
+  );
+}
+
+function ReferralTable({ referrals, compact, hideHospital = false, organisationLabel = 'Organisation' }) {
+  const colSpan = 2 + (compact ? 0 : 2) + (hideHospital ? 0 : 1) + 2;
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Reference</th><th>Beneficiary</th>{!compact && <th>Organisation</th>}<th>Hospital</th><th>Urgency</th><th>Status</th>{!compact && <th>Service</th>}</tr></thead>
+        <thead><tr><th>Reference</th><th>Beneficiary</th>{!compact && <th>{organisationLabel}</th>}{!hideHospital && <th>Hospital</th>}<th>Urgency</th><th>Status</th>{!compact && <th>Service</th>}</tr></thead>
         <tbody>
           {referrals.map((referral) => (
             <tr key={referral.id}>
-              <td>{referral.referral_number}</td><td>{referral.beneficiary_name}</td>{!compact && <td>{referral.ngo_name}</td>}<td>{referral.hospital_name}</td><td>{referral.urgency}</td><td><span className={statusClass[referral.status] || 'status'}>{referral.status}</span></td>{!compact && <td>{referral.service_required}</td>}
+              <td>{referral.referral_number}</td><td>{referral.beneficiary_name}</td>{!compact && <td>{referral.ngo_name}</td>}{!hideHospital && <td>{referral.hospital_name}</td>}<td>{referral.urgency}</td><td><span className={statusClass[referral.status] || 'status'}>{referral.status}</span></td>{!compact && <td>{referral.service_required}</td>}
             </tr>
           ))}
-          {!referrals.length && <tr><td colSpan={compact ? 5 : 7} className="empty">No referrals found.</td></tr>}
+          {!referrals.length && <tr><td colSpan={colSpan} className="empty">No referrals found.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -550,6 +615,101 @@ function StaffTable({ staff, onToggleStaff }) {
   );
 }
 
+function OrganisationProfile({ organisation, loading, refresh, setNotice }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: '', email: '', phone: '', location: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!organisation) return;
+    setDraft({
+      name: organisation.name || '',
+      email: organisation.email || '',
+      phone: organisation.phone || '',
+      location: organisation.location || ''
+    });
+  }, [organisation?.id, organisation?.name, organisation?.email, organisation?.phone, organisation?.location]);
+
+  function cancelEdit() {
+    setError('');
+    setEditing(false);
+    setDraft({
+      name: organisation?.name || '',
+      email: organisation?.email || '',
+      phone: organisation?.phone || '',
+      location: organisation?.location || ''
+    });
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    if (!draft.name.trim()) {
+      setError('Organisation name is required.');
+      return;
+    }
+
+    if (!draft.email.trim()) {
+      setError('Contact email is required.');
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    try {
+      await api('/admin/organisation-profile', { method: 'PATCH', body: draft });
+      setNotice('Profile updated.');
+      setEditing(false);
+      refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading && !organisation) {
+    return <section className="page"><h1>Profile</h1><section className="panel"><div className="empty">Loading profile...</div></section></section>;
+  }
+
+  if (!organisation) {
+    return <section className="page"><h1>Profile</h1><section className="panel"><div className="empty">No organisation profile was found.</div></section></section>;
+  }
+
+  return (
+    <section className="page">
+      <div className="title-row">
+        <h1>Profile</h1>
+        {!editing && <button className="primary" type="button" onClick={() => setEditing(true)}>Edit Profile</button>}
+      </div>
+      <section className="panel">
+        {editing ? (
+          <form className="form-grid" onSubmit={saveProfile}>
+            <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+            <label>Contact email<input type="email" required value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+            <label>Phone<input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
+            <label>Location<input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} /></label>
+            {error && <div className="alert error wide">{error}</div>}
+            <div className="button-row wide">
+              <button className="primary" type="submit" disabled={busy || !draft.name.trim()}>{busy ? 'Saving...' : 'Save Changes'}</button>
+              <button type="button" onClick={cancelEdit} disabled={busy}>Cancel</button>
+            </div>
+          </form>
+        ) : (
+          <div className="detail-grid">
+            <div><span>Name</span><strong>{organisation.name}</strong></div>
+            <div><span>Organisation type</span><strong>{organisation.type}</strong></div>
+            <div><span>Contact email</span><strong>{organisation.email || 'Not set'}</strong></div>
+            <div><span>Phone</span><strong>{organisation.phone || 'Not set'}</strong></div>
+            <div><span>Location</span><strong>{organisation.location || 'Not set'}</strong></div>
+            <div><span>Status</span><strong>{organisation.status}</strong></div>
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
+
 function ServiceCategories({ categories, refresh, setNotice }) {
   const { expandedPanel, togglePanel } = useExclusiveExpansion('types');
   const [form, setForm] = useState({ name: '', description: '' });
@@ -586,10 +746,30 @@ function ServiceCategories({ categories, refresh, setNotice }) {
   );
 }
 
-function Referrals({ referrals }) {
+function Referrals({ referrals, statuses, user }) {
   const [search, setSearch] = useState('');
-  const filtered = referrals.filter((referral) => `${referral.referral_number} ${referral.beneficiary_name} ${referral.status} ${referral.hospital_name}`.toLowerCase().includes(search.toLowerCase()));
-  return <section className="page"><div className="title-row"><h1>Referral Tracking</h1><div className="search-box"><Search size={17} aria-hidden="true" /><input placeholder="Search referrals" value={search} onChange={(event) => setSearch(event.target.value)} /></div></div><section className="panel"><ReferralTable referrals={filtered} /></section></section>;
+  const [statusFilter, setStatusFilter] = useState('');
+  const isHospitalUser = user.role === ROLES.HOSPITAL_RECORDS_KEEPER;
+  const filtered = referrals.filter((referral) => {
+    const matchesSearch = `${referral.referral_number} ${referral.beneficiary_name} ${referral.status} ${referral.hospital_name} ${referral.ngo_name}`.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !statusFilter || referral.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  return (
+    <section className="page">
+      <div className="title-row">
+        <h1>Referral Tracking</h1>
+        <div className="referral-tools">
+          <div className="search-box"><Search size={17} aria-hidden="true" /><input placeholder="Search referrals" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Referral status filter"><option value="">All statuses</option>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select>
+        </div>
+      </div>
+      <section className="panel">
+        <ReferralTable referrals={filtered} hideHospital={isHospitalUser} organisationLabel={isHospitalUser ? 'Referred by' : 'Organisation'} />
+      </section>
+    </section>
+  );
 }
 
 function NewReferral({ lookups, beneficiaries, refresh, setNotice }) {
@@ -641,6 +821,7 @@ function Feedback({ referrals, refresh, setNotice, user }) {
     return <NgoFeedback referrals={referrals} />;
   }
 
+  const { expandedPanel, togglePanel } = useExclusiveExpansion('submit-feedback');
   const candidates = referrals.filter((referral) => !referral.feedback_id);
   const [form, setForm] = useState({ referral_id: '', outcome: 'Treated', treatment_given: '', discharge_status: '', recommendations: '' });
   async function submit(event) {
@@ -650,7 +831,26 @@ function Feedback({ referrals, refresh, setNotice, user }) {
     setForm({ referral_id: '', outcome: 'Treated', treatment_given: '', discharge_status: '', recommendations: '' });
     refresh();
   }
-  return <section className="page"><h1>Feedback Management</h1><div className="content-grid"><form className="panel form-grid" onSubmit={submit}><label className="wide">Referral<select required value={form.referral_id} onChange={(event) => setForm({ ...form, referral_id: event.target.value })}><option value="">Select referral</option>{candidates.map((referral) => <option key={referral.id} value={referral.id}>{referral.referral_number} - {referral.beneficiary_name}</option>)}</select></label><label>Outcome<select value={form.outcome} onChange={(event) => setForm({ ...form, outcome: event.target.value })}><option>Treated</option><option>Referred onward</option><option>Admitted</option><option>Discharged</option><option>No show</option><option>Other</option></select></label><label>Discharge status<input value={form.discharge_status} onChange={(event) => setForm({ ...form, discharge_status: event.target.value })} /></label><label className="wide">Treatment or service provided<textarea required rows="4" value={form.treatment_given} onChange={(event) => setForm({ ...form, treatment_given: event.target.value })} /></label><label className="wide">Recommendations<textarea rows="4" value={form.recommendations} onChange={(event) => setForm({ ...form, recommendations: event.target.value })} /></label><button className="primary wide" type="submit"><Send size={18} aria-hidden="true" />Submit feedback</button></form><section className="panel"><h3>Feedback status</h3><ReferralTable referrals={referrals.filter((referral) => referral.feedback_id)} compact /></section></div></section>;
+  return (
+    <section className="page">
+      <h1>Feedback Management</h1>
+      <div className="accordion-stack">
+        <CollapsiblePanel id="submit-feedback" title="Submit feedback" summary={`${candidates.length} referral${candidates.length === 1 ? '' : 's'} awaiting feedback`} expandedPanel={expandedPanel} onToggle={togglePanel}>
+          <form className="form-grid" onSubmit={submit}>
+            <label className="wide">Referral<select required value={form.referral_id} onChange={(event) => setForm({ ...form, referral_id: event.target.value })}><option value="">Select referral</option>{candidates.map((referral) => <option key={referral.id} value={referral.id}>{referral.referral_number} - {referral.beneficiary_name}</option>)}</select></label>
+            <label>Outcome<select value={form.outcome} onChange={(event) => setForm({ ...form, outcome: event.target.value })}><option>Treated</option><option>Referred onward</option><option>Admitted</option><option>Discharged</option><option>No show</option><option>Other</option></select></label>
+            <label>Discharge status<input value={form.discharge_status} onChange={(event) => setForm({ ...form, discharge_status: event.target.value })} /></label>
+            <label className="wide">Treatment or service provided<textarea required rows="4" value={form.treatment_given} onChange={(event) => setForm({ ...form, treatment_given: event.target.value })} /></label>
+            <label className="wide">Recommendations<textarea rows="4" value={form.recommendations} onChange={(event) => setForm({ ...form, recommendations: event.target.value })} /></label>
+            <button className="primary wide" type="submit"><Send size={18} aria-hidden="true" />Submit feedback</button>
+          </form>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="feedback-status" title="Feedback status" summary={`${referrals.filter((referral) => referral.feedback_id).length} submitted`} expandedPanel={expandedPanel} onToggle={togglePanel}>
+          <ReferralTable referrals={referrals.filter((referral) => referral.feedback_id)} compact />
+        </CollapsiblePanel>
+      </div>
+    </section>
+  );
 }
 
 function NgoFeedback({ referrals }) {
@@ -822,7 +1022,7 @@ function SimpleRows({ title, rows, columns }) {
 function App() {
   const [user, setUser] = useState(getStoredUser());
   const [active, setActive] = useState('dashboard');
-  const { data, loading, notice, setNotice, refresh } = useAppData(user);
+  const { data, loading, notice, setNotice, refresh, removeNotification } = useAppData(user);
 
   useEffect(() => {
     if (!user) return;
@@ -832,6 +1032,17 @@ function App() {
   function handleLogin(nextUser) {
     setUser(nextUser);
     setActive(defaultViewForUser(nextUser));
+  }
+
+  async function attendNotification(notificationId) {
+    try {
+      await api(`/dashboard/notifications/${notificationId}/attend`, { method: 'PATCH' });
+      removeNotification(notificationId);
+      return true;
+    } catch (error) {
+      setNotice(error.message);
+      return false;
+    }
   }
 
   const view = useMemo(() => {
@@ -850,14 +1061,10 @@ function App() {
         return <SimpleRows title="Active Users by Organisation" rows={data.admin.activeUsers} columns={[{ key: 'name', label: 'Organisation' }, { key: 'type', label: 'Type' }, { key: 'status', label: 'Status' }, { key: 'active_users', label: 'Active users' }]} />;
       case 'staff-users':
         return <StaffUsers staff={data.admin.staff} user={user} loading={loading} {...props} />;
-      case 'org-roles':
-        return <SimpleRows title="Roles within Organisation" rows={(user.organisation_type === 'NGO' ? [ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER] : [ROLES.ORG_ADMIN, ROLES.HOSPITAL_RECORDS_KEEPER]).map((role) => ({ role }))} columns={[{ key: 'role', label: 'Role' }]} />;
       case 'org-profile':
-        return <SimpleRows title="Organisation Profile" rows={data.admin.organisationProfile ? [data.admin.organisationProfile] : []} columns={[{ key: 'name', label: 'Name' }, { key: 'type', label: 'Type' }, { key: 'location', label: 'Location' }, { key: 'status', label: 'Status' }]} />;
-      case 'org-reports':
-        return <Reports reportOptions={data.reportOptions} lookups={data.lookups} user={user} />;
+        return <OrganisationProfile organisation={data.admin.organisationProfile} loading={loading} {...props} />;
       case 'referrals':
-        return <Referrals referrals={data.referrals} {...props} />;
+        return <Referrals referrals={data.referrals} statuses={data.lookups.statuses} user={user} {...props} />;
       case 'new-referral':
         return <NewReferral lookups={data.lookups} beneficiaries={data.beneficiaries} {...props} />;
       case 'hospital-inbox':
@@ -869,9 +1076,9 @@ function App() {
       case 'reports':
         return <Reports reportOptions={data.reportOptions} lookups={data.lookups} user={user} />;
       default:
-        return <Dashboard dashboard={data.dashboard} onNavigate={setActive} />;
+        return <Dashboard dashboard={data.dashboard} onNavigate={setActive} onAttendNotification={attendNotification} user={user} loading={loading} />;
     }
-  }, [active, data, user]);
+  }, [active, data, user, loading]);
 
   if (!user) return <Login onLogin={handleLogin} />;
 

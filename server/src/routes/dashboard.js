@@ -78,22 +78,23 @@ dashboardRouter.get('/', requireAuth, asyncHandler(async (req, res) => {
       params
     ),
     query(
-      `SELECT r.id, r.referral_number, r.status, r.urgency, r.service_required, r.updated_at,
+      `SELECT r.id, r.referral_number, r.status, r.urgency, r.service_required, r.created_at, r.updated_at,
               b.full_name AS beneficiary_name, rec_org.name AS hospital_name, ref_org.name AS ngo_name
        FROM referrals r
        JOIN beneficiaries b ON b.id = r.beneficiary_id
        JOIN organisations rec_org ON rec_org.id = r.receiving_organisation_id
        JOIN organisations ref_org ON ref_org.id = r.referring_organisation_id
        WHERE ${scope.clause}
-       ORDER BY r.updated_at DESC
-       LIMIT 8`,
+       ORDER BY r.created_at DESC, r.updated_at DESC
+       LIMIT 10`,
       params
     ),
     query(
       `SELECT id, title, message, is_read, created_at
        FROM notifications
        WHERE user_id = :userId
-       ORDER BY created_at DESC
+         AND is_read = FALSE
+       ORDER BY created_at ASC
        LIMIT 6`,
       { userId: req.user.id }
     )
@@ -110,4 +111,22 @@ dashboardRouter.get('/', requireAuth, asyncHandler(async (req, res) => {
     recent,
     notifications
   });
+}));
+
+dashboardRouter.patch('/notifications/:id/attend', requireAuth, asyncHandler(async (req, res) => {
+  await query(
+    'UPDATE notifications SET is_read = TRUE WHERE id = :id AND user_id = :userId',
+    { id: req.params.id, userId: req.user.id }
+  );
+
+  const [notification] = await query(
+    'SELECT id, title, message, is_read, created_at FROM notifications WHERE id = :id AND user_id = :userId',
+    { id: req.params.id, userId: req.user.id }
+  );
+
+  if (!notification) {
+    return res.status(404).json({ message: 'Notification was not found.' });
+  }
+
+  res.json({ notification });
 }));
