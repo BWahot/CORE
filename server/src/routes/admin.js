@@ -1,10 +1,67 @@
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
-import { query } from '../db.js';
+import { pool, query } from '../db.js';
 import { canManageStaff, emailDomain, organisationDomain, requireAuth, requireRole, ROLES } from '../auth.js';
 import { asyncHandler, requireFields } from '../utils.js';
 
 export const adminRouter = Router();
+
+function normaliseDomain(domain) {
+  return String(domain || '').trim().toLowerCase().replace(/^@/, '');
+}
+
+function domainFromOrganisationInput(body) {
+  return normaliseDomain(body.email_domain || emailDomain(body.email));
+}
+
+async function execute(connection, sql, params = {}) {
+  const [rows] = await connection.execute(sql, params);
+  return rows;
+}
+
+async function assertUniqueOrganisationDomain(connection, domain, organisationId = null) {
+  const rows = await execute(
+    connection,
+    `SELECT id FROM organisations
+     WHERE LOWER(SUBSTRING_INDEX(email, '@', -1)) = :domain
+       AND (:organisation_id IS NULL OR id != :organisation_id)`,
+    { domain, organisation_id: organisationId }
+  );
+
+  if (rows.length) {
+    const error = new Error('An organisation with this email domain already exists.');
+    error.status = 400;
+    throw error;
+  }
+}
+
+function validateOrganisationAdminPayload(body, isEdit = false) {
+  requireFields(body, ['name', 'type', 'email_domain', 'email', 'admin_full_name', 'admin_email']);
+  if (!isEdit && !body.admin_id) {
+    requireFields(body, ['admin_password']);
+  }
+
+  const domain = domainFromOrganisationInput(body);
+  if (!domain) {
+    const error = new Error('Organisation email domain is required.');
+    error.status = 400;
+    throw error;
+  }
+
+  if (emailDomain(body.email) !== domain) {
+    const error = new Error('Contact email must use the registered organisation email domain.');
+    error.status = 400;
+    throw error;
+  }
+
+  if (emailDomain(body.admin_email) !== domain) {
+    const error = new Error('Organisation administrators must use the registered organisation email domain.');
+    error.status = 400;
+    throw error;
+  }
+
+  return domain;
+}
 
 adminRouter.get('/organisations', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {
   const organisations = await query('SELECT * FROM organisations ORDER BY type, name');
@@ -64,6 +121,185 @@ adminRouter.patch('/organisations/:id', requireAuth, requireRole(ROLES.PLATFORM_
 
   const [organisation] = await query('SELECT * FROM organisations WHERE id = :id', { id: req.params.id });
   res.json({ organisation });
+}));
+
+adminRouter.post('/organisations-with-admin', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {
+  const domain = validateOrganisationAdminPayload(req.body);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    await assertUniqueOrganisationDomain(connection, domain);
+
+    const organisationResult = await execute(
+      connection,
+      `INSERT INTO organisations (name, type, email, phone, location, status)
+       VALUES (:name, :type, :email, :phone, :location, :status)`,
+      {
+        name: req.body.name,
+        type: req.body.type,
+        email: req.body.email,
+        phone: req.body.phone || null,
+        location: req.body.location || null,
+        status: req.body.status || 'ACTIVE'
+      }
+    );
+
+    const passwordHash = await bcrypt.hash(req.body.admin_password, 10);
+    const adminResult = await execute(
+      connection,
+      `INSERT INTO users (organisation_id, full_name, email, password_hash, role, status)
+       VALUES (:organisation_id, :full_name, :email, :password_hash, 'ORG_ADMIN', :status)`,
+      {
+        organisation_id: organisationResult.insertId,
+        full_name: req.body.admin_full_name,
+        email: req.body.admin_email,
+        password_hash: passwordHash,
+        status: req.body.admin_status || 'ACTIVE'
+      }
+    );
+
+    await execute(
+      connection,
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details)
+       VALUES (:userId, 'CREATE_ORGANISATION_WITH_ADMIN', 'organisation', :entityId,
+         JSON_OBJECT('name', :name, 'type', :type, 'admin_user_id', :adminUserId))`,
+      { userId: req.user.id, entityId: organisationResult.insertId, name: req.body.name, type: req.body.type, adminUserId: adminResult.insertId }
+    );
+
+    await connection.commit();
+    const [organisation] = await query('SELECT * FROM organisations WHERE id = :id', { id: organisationResult.insertId });
+    const [admin] = await query(
+      `SELECT u.id, u.organisation_id, u.full_name, u.email, u.role, u.status, u.created_at, u.updated_at,
+              o.name AS organisation_name, o.type AS organisation_type, o.email AS organisation_email
+       FROM users u
+       JOIN organisations o ON o.id = u.organisation_id
+       WHERE u.id = :id`,
+      { id: adminResult.insertId }
+    );
+    res.status(201).json({ organisation, admin });
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') {
+      error.status = 400;
+      error.message = 'An organisation administrator with this email already exists.';
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+adminRouter.patch('/organisations/:id/with-admin', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {
+  const domain = validateOrganisationAdminPayload(req.body, true);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const organisations = await execute(connection, 'SELECT * FROM organisations WHERE id = :id', { id: req.params.id });
+    if (!organisations.length) {
+      const error = new Error('Organisation was not found.');
+      error.status = 404;
+      throw error;
+    }
+
+    await assertUniqueOrganisationDomain(connection, domain, req.params.id);
+    await execute(
+      connection,
+      `UPDATE organisations
+       SET name = :name,
+           type = :type,
+           email = :email,
+           phone = :phone,
+           location = :location,
+           status = :status
+       WHERE id = :id`,
+      {
+        id: req.params.id,
+        name: req.body.name,
+        type: req.body.type,
+        email: req.body.email,
+        phone: req.body.phone || null,
+        location: req.body.location || null,
+        status: req.body.status || 'ACTIVE'
+      }
+    );
+
+    const existingAdmins = await execute(
+      connection,
+      'SELECT * FROM users WHERE organisation_id = :organisation_id AND role = :role ORDER BY created_at LIMIT 1',
+      { organisation_id: req.params.id, role: ROLES.ORG_ADMIN }
+    );
+    const adminId = req.body.admin_id || existingAdmins[0]?.id || null;
+
+    if (adminId) {
+      const passwordClause = req.body.admin_password ? ', password_hash = :password_hash' : '';
+      await execute(
+        connection,
+        `UPDATE users
+         SET organisation_id = :organisation_id,
+             full_name = :full_name,
+             email = :email,
+             status = :status
+             ${passwordClause}
+         WHERE id = :id AND role = :role`,
+        {
+          id: adminId,
+          role: ROLES.ORG_ADMIN,
+          organisation_id: req.params.id,
+          full_name: req.body.admin_full_name,
+          email: req.body.admin_email,
+          status: req.body.admin_status || 'ACTIVE',
+          password_hash: req.body.admin_password ? await bcrypt.hash(req.body.admin_password, 10) : null
+        }
+      );
+    } else {
+      requireFields(req.body, ['admin_password']);
+      await execute(
+        connection,
+        `INSERT INTO users (organisation_id, full_name, email, password_hash, role, status)
+         VALUES (:organisation_id, :full_name, :email, :password_hash, 'ORG_ADMIN', :status)`,
+        {
+          organisation_id: req.params.id,
+          full_name: req.body.admin_full_name,
+          email: req.body.admin_email,
+          password_hash: await bcrypt.hash(req.body.admin_password, 10),
+          status: req.body.admin_status || 'ACTIVE'
+        }
+      );
+    }
+
+    await execute(
+      connection,
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details)
+       VALUES (:userId, 'UPDATE_ORGANISATION_WITH_ADMIN', 'organisation', :entityId,
+         JSON_OBJECT('status', :status, 'admin_user_id', :adminUserId))`,
+      { userId: req.user.id, entityId: req.params.id, status: req.body.status || null, adminUserId: adminId }
+    );
+
+    await connection.commit();
+    const [organisation] = await query('SELECT * FROM organisations WHERE id = :id', { id: req.params.id });
+    const [admin] = await query(
+      `SELECT u.id, u.organisation_id, u.full_name, u.email, u.role, u.status, u.created_at, u.updated_at,
+              o.name AS organisation_name, o.type AS organisation_type, o.email AS organisation_email
+       FROM users u
+       JOIN organisations o ON o.id = u.organisation_id
+       WHERE u.organisation_id = :organisation_id AND u.role = :role
+       ORDER BY u.created_at
+       LIMIT 1`,
+      { organisation_id: req.params.id, role: ROLES.ORG_ADMIN }
+    );
+    res.json({ organisation, admin });
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') {
+      error.status = 400;
+      error.message = 'An organisation administrator with this email already exists.';
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 }));
 
 adminRouter.get('/active-users', requireAuth, requireRole(ROLES.PLATFORM_ADMIN), asyncHandler(async (req, res) => {

@@ -165,6 +165,7 @@ nav {
   padding: 10px 12px;
   color: #c9d5db;
   background: transparent;
+  text-decoration: none;
   text-align: left;
 }
 
@@ -537,11 +538,56 @@ tr:hover td {
 }
 
 .notice-item p,
-.profile-item p,
 .inbox-item p,
 .feedback-card p,
 .donor p {
   margin: 6px 0 0;
+}
+
+.profile-toggle {
+  width: 100%;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.profile-toggle span span,
+.profile-toggle small {
+  color: var(--muted);
+}
+
+.profile-toggle p {
+  margin: 6px 0 0;
+}
+
+.profile-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.profile-details div {
+  display: grid;
+  gap: 4px;
+}
+
+.profile-details span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.profile-details strong {
+  overflow-wrap: anywhere;
 }
 
 .search-box {
@@ -614,6 +660,25 @@ tr:hover td {
   border-radius: 6px;
   font-weight: 750;
   text-decoration: none;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.chart-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfb;
+}
+
+.chart-card h4 {
+  margin: 0;
 }
 
 .wide {
@@ -695,6 +760,7 @@ tr:hover td {
   overflow: hidden;
 }
 
+.bar-row div span,
 .bar-row i {
   display: block;
   height: 100%;
@@ -750,7 +816,9 @@ tr:hover td {
   .metrics-grid,
   .content-grid,
   .detail-grid,
+  .profile-details,
   .management-grid,
+  .chart-grid,
   .donor-grid {
     grid-template-columns: 1fr;
   }
@@ -768,5 +836,36 @@ tr:hover td {
 
   .filters-panel {
     grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .sidebar,
+  .topbar,
+  .report-builder,
+  .toast,
+  .loading,
+  .button-row {
+    display: none !important;
+  }
+
+  .app-shell {
+    display: block;
+  }
+
+  .main {
+    padding: 0;
+  }
+
+  .page,
+  .report-preview {
+    gap: 12px;
+  }
+
+  .panel,
+  .metric-card,
+  .chart-card {
+    box-shadow: none;
+    break-inside: avoid;
   }
 }

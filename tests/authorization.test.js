@@ -2,10 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canManageStaff, emailDomain, expectedOrganisationRole, organisationDomain, referralScopeWhere, ROLES } from '../server/src/auth.js';
 import {
-  ALL_AVAILABLE_REPORT,
   availableReportsFor,
   canGenerateReport,
-  nonAllReportsForUser,
   validateReportRequest
 } from '../server/src/reports/config.js';
 
@@ -62,55 +60,54 @@ test('platform admin cannot manage organisation staff through org-admin guard', 
   assert.equal(canManageStaff(user(ROLES.PLATFORM_ADMIN), 4), false);
 });
 
-test('NGO social worker sees only NGO reports plus All Available Reports', () => {
+test('NGO social worker sees only their activity report', () => {
   const reports = availableReportsFor(user(ROLES.NGO_SOCIAL_WORKER, 1, 'NGO'));
-  assert.equal(reports.at(-1).report_key, ALL_AVAILABLE_REPORT);
-  assert.equal(reports.some((report) => report.report_key === 'referral_summary'), true);
-  assert.equal(reports.some((report) => report.report_key === 'incoming_referrals'), false);
+  assert.deepEqual(reports.map((report) => report.report_key), ['ngo_social_worker_activity']);
 });
 
-test('hospital records keeper sees only hospital reports plus All Available Reports', () => {
+test('hospital records keeper sees only their activity report', () => {
   const reports = availableReportsFor(user(ROLES.HOSPITAL_RECORDS_KEEPER, 3, 'HOSPITAL'));
-  assert.equal(reports.at(-1).report_key, ALL_AVAILABLE_REPORT);
-  assert.equal(reports.some((report) => report.report_key === 'incoming_referrals'), true);
-  assert.equal(reports.some((report) => report.report_key === 'organisation_registry'), false);
+  assert.deepEqual(reports.map((report) => report.report_key), ['hospital_records_keeper_activity']);
 });
 
-test('organisation admin sees only organisation reports plus All Available Reports', () => {
+test('organisation admin sees only the organisation activity report', () => {
   const reports = availableReportsFor(user(ROLES.ORG_ADMIN, 1, 'NGO'));
-  assert.equal(reports.at(-1).report_key, ALL_AVAILABLE_REPORT);
-  assert.equal(reports.some((report) => report.report_key === 'staff_activity'), true);
-  assert.equal(reports.some((report) => report.report_key === 'platform_growth'), false);
+  assert.deepEqual(reports.map((report) => report.report_key), ['organisation_activity']);
 });
 
-test('platform admin sees only platform reports plus All Available Reports', () => {
+test('platform admin sees only platform reports', () => {
   const reports = availableReportsFor(user(ROLES.PLATFORM_ADMIN));
-  assert.equal(reports.at(-1).report_key, ALL_AVAILABLE_REPORT);
-  assert.equal(reports.some((report) => report.report_key === 'organisation_registry'), true);
-  assert.equal(reports.some((report) => report.report_key === 'beneficiary_follow_up'), false);
+  assert.deepEqual(reports.map((report) => report.report_key), ['platform_system_overview', 'platform_organisation']);
 });
 
-test('NGO social worker cannot generate incoming referrals report', () => {
-  assert.equal(canGenerateReport(user(ROLES.NGO_SOCIAL_WORKER, 1, 'NGO'), 'incoming_referrals'), false);
+test('NGO social worker cannot generate hospital records keeper report', () => {
+  assert.equal(canGenerateReport(user(ROLES.NGO_SOCIAL_WORKER, 1, 'NGO'), 'hospital_records_keeper_activity'), false);
 });
 
-test('hospital records keeper cannot generate organisation registry report', () => {
-  assert.equal(canGenerateReport(user(ROLES.HOSPITAL_RECORDS_KEEPER, 3, 'HOSPITAL'), 'organisation_registry'), false);
+test('hospital records keeper cannot generate platform organisation report', () => {
+  assert.equal(canGenerateReport(user(ROLES.HOSPITAL_RECORDS_KEEPER, 3, 'HOSPITAL'), 'platform_organisation'), false);
 });
 
-test('platform admin cannot generate beneficiary follow-up report', () => {
-  assert.equal(canGenerateReport(user(ROLES.PLATFORM_ADMIN), 'beneficiary_follow_up'), false);
+test('platform admin cannot generate NGO social worker report', () => {
+  assert.equal(canGenerateReport(user(ROLES.PLATFORM_ADMIN), 'ngo_social_worker_activity'), false);
 });
 
-test('All Available Reports excludes unauthorised reports', () => {
-  const reports = nonAllReportsForUser(user(ROLES.PLATFORM_ADMIN));
-  assert.equal(reports.every((report) => report.allowed_roles.includes(ROLES.PLATFORM_ADMIN)), true);
-  assert.equal(reports.some((report) => report.report_key === 'hospital_feedback'), false);
+test('invalid report format is rejected', () => {
+  assert.throws(
+    () => validateReportRequest(user(ROLES.PLATFORM_ADMIN), 'platform_system_overview', {}, 'xlsx'),
+    /Invalid output format/
+  );
+});
+
+test('PDF report format is allowed', () => {
+  assert.doesNotThrow(
+    () => validateReportRequest(user(ROLES.PLATFORM_ADMIN), 'platform_system_overview', {}, 'pdf')
+  );
 });
 
 test('invalid report filters reject reversed date ranges', () => {
   assert.throws(
-    () => validateReportRequest(user(ROLES.NGO_SOCIAL_WORKER, 1, 'NGO'), 'referral_summary', { start_date: '2026-06-20', end_date: '2026-06-01' }, 'screen'),
+    () => validateReportRequest(user(ROLES.NGO_SOCIAL_WORKER, 1, 'NGO'), 'ngo_social_worker_activity', { start_date: '2026-06-20', end_date: '2026-06-01' }, 'screen'),
     /Start date/
   );
 });

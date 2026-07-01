@@ -1,5 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import {
+  BrowserRouter,
+  Navigate,
+  NavLink,
+  Outlet,
+  Route,
+  Routes,
+  useNavigate,
+  useSearchParams
+} from 'react-router-dom';
 import {
   Activity,
   Bell,
@@ -47,8 +57,8 @@ const statusClass = {
   Rejected: 'status rejected',
   Cancelled: 'status rejected',
   ACTIVE: 'status completed',
-  INACTIVE: 'status pending',
-  ARCHIVED: 'status rejected'
+  INACTIVE: 'status rejected',
+  ARCHIVED: 'status pending'
 };
 
 const navItems = [
@@ -59,23 +69,71 @@ const navItems = [
   { id: 'audit-logs', label: 'Audit Logs', icon: FileText, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'active-users', label: 'Active Users', icon: UsersRound, roles: [ROLES.PLATFORM_ADMIN] },
   { id: 'staff-users', label: 'Staff Users', icon: UsersRound, roles: [ROLES.ORG_ADMIN] },
-  { id: 'org-profile', label: 'Profile', icon: Building2, roles: [ROLES.ORG_ADMIN] },
-  { id: 'referrals', label: 'Referrals', icon: ClipboardList, roles: [ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] },
+  { id: 'referrals', label: 'Referrals', icon: ClipboardList, roles: [ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] },
   { id: 'new-referral', label: 'New Referral', icon: Plus, roles: [ROLES.NGO_SOCIAL_WORKER] },
   { id: 'hospital-inbox', label: 'Hospital Inbox', icon: Hospital, roles: [ROLES.HOSPITAL_RECORDS_KEEPER] },
   { id: 'beneficiaries', label: 'Case Profiles', icon: UsersRound, roles: [ROLES.NGO_SOCIAL_WORKER] },
   { id: 'feedback', label: 'Feedback', icon: Send, roles: [ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] },
-  { id: 'reports', label: 'Reports', icon: FileText, roles: [ROLES.PLATFORM_ADMIN, ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] }
+  { id: 'reports', label: 'Reports', icon: FileText, roles: [ROLES.PLATFORM_ADMIN, ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] },
+  { id: 'profile', label: 'Profile', icon: UserRound, roles: [ROLES.ORG_ADMIN, ROLES.NGO_SOCIAL_WORKER, ROLES.HOSPITAL_RECORDS_KEEPER] }
 ];
+
+const roleBasePaths = {
+  [ROLES.PLATFORM_ADMIN]: '/platform',
+  [ROLES.ORG_ADMIN]: '/org-admin',
+  [ROLES.NGO_SOCIAL_WORKER]: '/ngo',
+  [ROLES.HOSPITAL_RECORDS_KEEPER]: '/hospital'
+};
+
+const routeSegments = {
+  [ROLES.PLATFORM_ADMIN]: {
+    dashboard: 'dashboard',
+    organisations: 'organisations',
+    'organisation-admins': 'organisation-admins',
+    'service-categories': 'service-categories',
+    'audit-logs': 'audit-logs',
+    'active-users': 'active-users',
+    reports: 'reports'
+  },
+  [ROLES.ORG_ADMIN]: {
+    dashboard: 'dashboard',
+    'staff-users': 'staff-users',
+    referrals: 'referrals',
+    reports: 'reports',
+    profile: 'profile'
+  },
+  [ROLES.NGO_SOCIAL_WORKER]: {
+    dashboard: 'dashboard',
+    referrals: 'referrals',
+    'new-referral': 'new-referral',
+    beneficiaries: 'case-profiles',
+    feedback: 'feedback',
+    reports: 'reports',
+    profile: 'profile'
+  },
+  [ROLES.HOSPITAL_RECORDS_KEEPER]: {
+    dashboard: 'dashboard',
+    'hospital-inbox': 'inbox',
+    referrals: 'referrals',
+    feedback: 'feedback',
+    reports: 'reports',
+    profile: 'profile'
+  }
+};
 
 function isAllowedView(viewId, user) {
   if (!user) return false;
-  const item = navItems.find((navItem) => navItem.id === viewId);
-  return Boolean(item && (!item.roles || item.roles.includes(user.role)));
+  return Boolean(routeSegments[user.role]?.[viewId]);
 }
 
-function defaultViewForUser(user) {
-  return isAllowedView('dashboard', user) ? 'dashboard' : navItems.find((item) => isAllowedView(item.id, user))?.id || 'dashboard';
+function routeForView(viewId, user) {
+  const basePath = roleBasePaths[user?.role] || '/login';
+  const segment = routeSegments[user?.role]?.[viewId] || routeSegments[user?.role]?.dashboard;
+  return `${basePath}/${segment || 'dashboard'}`;
+}
+
+function dashboardPathForUser(user) {
+  return routeForView('dashboard', user);
 }
 
 function useExclusiveExpansion(initialPanel) {
@@ -109,6 +167,11 @@ function CollapsiblePanel({ id, title, summary, expandedPanel, onToggle, fallbac
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleDateString() : 'Not available';
+}
+
+function getEmailDomain(value) {
+  const parts = String(value || '').trim().toLowerCase().split('@');
+  return parts.length === 2 ? parts[1] : '';
 }
 
 function emptyData() {
@@ -253,7 +316,7 @@ function Login({ onLogin }) {
   );
 }
 
-function Shell({ user, onLogout, children, active, setActive }) {
+function Shell({ user, onLogout, notice, setNotice, loading }) {
   const allowedNav = navItems.filter((item) => !item.roles || item.roles.includes(user.role));
   return (
     <div className="app-shell">
@@ -262,7 +325,7 @@ function Shell({ user, onLogout, children, active, setActive }) {
         <nav>
           {allowedNav.map((item) => {
             const Icon = item.icon;
-            return <button key={item.id} className={active === item.id ? 'nav active' : 'nav'} onClick={() => setActive(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></button>;
+            return <NavLink key={item.id} className={({ isActive }) => isActive ? 'nav active' : 'nav'} to={routeForView(item.id, user)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></NavLink>;
           })}
         </nav>
         <button className="nav logout" onClick={onLogout}><LogOut size={18} aria-hidden="true" /><span>Logout</span></button>
@@ -272,7 +335,9 @@ function Shell({ user, onLogout, children, active, setActive }) {
           <div><p>{roleLabels[user.role]}</p><h2>{user.full_name}</h2></div>
           <div className="org-pill"><UserRound size={18} aria-hidden="true" /><span>{user.organisation_name || 'Platform governance'}</span></div>
         </header>
-        {children}
+        {notice && <button className="toast" onClick={() => setNotice('')}>{notice}</button>}
+        {loading && <div className="loading">Loading latest records...</div>}
+        <Outlet />
       </div>
     </div>
   );
@@ -291,6 +356,8 @@ function Dashboard({ dashboard, onNavigate, onAttendNotification, user, loading 
   const statusRows = dashboard?.metrics?.byStatus || [];
   const mode = dashboard?.mode || 'operational';
   const isHospitalDashboard = user?.role === ROLES.HOSPITAL_RECORDS_KEEPER;
+  const isNgoDashboard = user?.role === ROLES.NGO_SOCIAL_WORKER;
+  const notificationTarget = isHospitalDashboard ? 'hospital-inbox' : isNgoDashboard ? 'feedback' : null;
   return (
     <section className="page">
       <div className="title-row"><div><h1>{mode === 'platform' ? 'Platform Dashboard' : mode === 'organisation' ? 'Organisation Dashboard' : 'Referral Dashboard'}</h1></div></div>
@@ -329,14 +396,14 @@ function Dashboard({ dashboard, onNavigate, onAttendNotification, user, loading 
       {mode === 'operational' && (
         <>
           <div className="metrics-grid">
-            <Metric label="Total referrals" value={dashboard?.metrics?.totalReferrals || 0} icon={ClipboardList} onClick={isHospitalDashboard ? () => onNavigate('referrals') : null} />
-            <Metric label="Urgent open cases" value={dashboard?.metrics?.urgentOpen || 0} icon={Activity} tone="warm" onClick={isHospitalDashboard ? () => onNavigate('hospital-inbox') : null} />
-            <Metric label="Pending feedback" value={dashboard?.metrics?.pendingFeedback || 0} icon={Bell} tone="cool" onClick={isHospitalDashboard ? () => onNavigate('feedback') : null} />
-            <Metric label="Completed" value={statusRows.find((row) => row.status === 'Completed')?.total || 0} icon={CheckCircle2} tone="good" onClick={isHospitalDashboard ? () => onNavigate('referrals') : null} />
+            <Metric label="Total referrals" value={dashboard?.metrics?.totalReferrals || 0} icon={ClipboardList} onClick={isHospitalDashboard || isNgoDashboard ? () => onNavigate('referrals') : null} />
+            <Metric label="Urgent open cases" value={dashboard?.metrics?.urgentOpen || 0} icon={Activity} tone="warm" onClick={isHospitalDashboard ? () => onNavigate('hospital-inbox') : isNgoDashboard ? () => onNavigate('referrals') : null} />
+            <Metric label="Pending feedback" value={dashboard?.metrics?.pendingFeedback || 0} icon={Bell} tone="cool" onClick={isHospitalDashboard || isNgoDashboard ? () => onNavigate('feedback') : null} />
+            <Metric label="Completed" value={statusRows.find((row) => row.status === 'Completed')?.total || 0} icon={CheckCircle2} tone="good" onClick={isHospitalDashboard ? () => onNavigate('referrals') : isNgoDashboard ? () => onNavigate('feedback') : null} />
           </div>
           <div className="content-grid">
             <RecentReferralsPanel referrals={dashboard?.recent || []} loading={loading} onShowMore={() => onNavigate('referrals')} />
-            <NotificationPanel notifications={dashboard?.notifications || []} onAttend={onAttendNotification} onOpen={isHospitalDashboard ? () => onNavigate('hospital-inbox') : null} />
+            <NotificationPanel notifications={dashboard?.notifications || []} onAttend={onAttendNotification} onOpen={notificationTarget ? () => onNavigate(notificationTarget) : null} />
           </div>
         </>
       )}
@@ -412,16 +479,16 @@ function NotificationPanel({ notifications, onAttend, onOpen }) {
   );
 }
 
-function ReferralTable({ referrals, compact, hideHospital = false, organisationLabel = 'Organisation' }) {
-  const colSpan = 2 + (compact ? 0 : 2) + (hideHospital ? 0 : 1) + 2;
+function ReferralTable({ referrals, compact, hideHospital = false, hideOrganisation = false, organisationLabel = 'Organisation', hospitalLabel = 'Hospital' }) {
+  const colSpan = 2 + (!compact && !hideOrganisation ? 1 : 0) + (hideHospital ? 0 : 1) + 2 + (!compact ? 1 : 0);
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Reference</th><th>Beneficiary</th>{!compact && <th>{organisationLabel}</th>}{!hideHospital && <th>Hospital</th>}<th>Urgency</th><th>Status</th>{!compact && <th>Service</th>}</tr></thead>
+        <thead><tr><th>Reference</th><th>Beneficiary</th>{!compact && !hideOrganisation && <th>{organisationLabel}</th>}{!hideHospital && <th>{hospitalLabel}</th>}<th>Urgency</th><th>Status</th>{!compact && <th>Service</th>}</tr></thead>
         <tbody>
           {referrals.map((referral) => (
             <tr key={referral.id}>
-              <td>{referral.referral_number}</td><td>{referral.beneficiary_name}</td>{!compact && <td>{referral.ngo_name}</td>}{!hideHospital && <td>{referral.hospital_name}</td>}<td>{referral.urgency}</td><td><span className={statusClass[referral.status] || 'status'}>{referral.status}</span></td>{!compact && <td>{referral.service_required}</td>}
+              <td>{referral.referral_number}</td><td>{referral.beneficiary_name}</td>{!compact && !hideOrganisation && <td>{referral.ngo_name}</td>}{!hideHospital && <td>{referral.hospital_name}</td>}<td>{referral.urgency}</td><td><span className={statusClass[referral.status] || 'status'}>{referral.status}</span></td>{!compact && <td>{referral.service_required}</td>}
             </tr>
           ))}
           {!referrals.length && <tr><td colSpan={colSpan} className="empty">No referrals found.</td></tr>}
@@ -431,137 +498,160 @@ function ReferralTable({ referrals, compact, hideHospital = false, organisationL
   );
 }
 
-function Organisations({ organisations, refresh, setNotice }) {
+const emptyOrganisationAdminForm = {
+  id: '',
+  name: '',
+  type: 'NGO',
+  email_domain: '',
+  email: '',
+  phone: '',
+  location: '',
+  status: 'ACTIVE',
+  admin_id: '',
+  admin_full_name: '',
+  admin_email: '',
+  admin_password: '',
+  admin_status: 'ACTIVE'
+};
+
+function Organisations({ organisations, admins, refresh, setNotice }) {
   const { expandedPanel, togglePanel } = useExclusiveExpansion('directory');
-  const [form, setForm] = useState({ name: '', type: 'NGO', email: '', phone: '', location: '', status: 'ACTIVE' });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [form, setForm] = useState(emptyOrganisationAdminForm);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const editOrganisationId = searchParams.get('editOrganisationId');
+  const isEditing = Boolean(form.id);
+
+  function adminForOrganisation(organisationId) {
+    return admins.find((admin) => Number(admin.organisation_id) === Number(organisationId));
+  }
+
+  function resetForm() {
+    setForm(emptyOrganisationAdminForm);
+    setError('');
+    setSearchParams({});
+  }
+
+  function loadOrganisation(organisation) {
+    const linkedAdmin = adminForOrganisation(organisation.id);
+    setForm({
+      id: organisation.id,
+      name: organisation.name || '',
+      type: organisation.type || 'NGO',
+      email_domain: getEmailDomain(organisation.email),
+      email: organisation.email || '',
+      phone: organisation.phone || '',
+      location: organisation.location || '',
+      status: organisation.status || 'ACTIVE',
+      admin_id: linkedAdmin?.id || '',
+      admin_full_name: linkedAdmin?.full_name || '',
+      admin_email: linkedAdmin?.email || '',
+      admin_password: '',
+      admin_status: linkedAdmin?.status || 'ACTIVE'
+    });
+    setError('');
+    togglePanel('add');
+    setSearchParams({ editOrganisationId: String(organisation.id) });
+  }
+
+  useEffect(() => {
+    if (!editOrganisationId || !organisations.length) return;
+    const organisation = organisations.find((item) => Number(item.id) === Number(editOrganisationId));
+    if (organisation) loadOrganisation(organisation);
+  }, [editOrganisationId, organisations.length, admins.length]);
+
   async function submit(event) {
     event.preventDefault();
-    await api('/admin/organisations', { method: 'POST', body: form });
-    setForm({ name: '', type: 'NGO', email: '', phone: '', location: '', status: 'ACTIVE' });
-    setNotice('Organisation created.');
-    refresh();
-  }
-  async function saveOrganisation(organisation) {
-    await api(`/admin/organisations/${organisation.id}`, { method: 'PATCH', body: organisation });
-    setNotice('Organisation updated.');
-    refresh();
+    setSaving(true);
+    setError('');
+    try {
+      const path = isEditing ? `/admin/organisations/${form.id}/with-admin` : '/admin/organisations-with-admin';
+      await api(path, { method: isEditing ? 'PATCH' : 'POST', body: form });
+      setNotice(isEditing ? 'Organisation and administrator updated.' : 'Organisation and administrator created.');
+      resetForm();
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
   }
   return (
     <section className="page">
       <h1>Organisations</h1>
       <div className="accordion-stack">
-        <CollapsiblePanel id="add" title="Add organisation" summary="Create an NGO or hospital record" expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="directory">
-          <form className="stack" onSubmit={submit}>
-            <label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-            <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option>NGO</option><option>HOSPITAL</option></select></label>
-            <label>Email<input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-            <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
-            <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
-            <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Add organisation</button>
+        <CollapsiblePanel id="add" title={isEditing ? 'Edit organisation' : 'Add organisation'} summary={isEditing ? 'Update organisation and linked administrator' : 'Create an organisation and its administrator'} expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="directory">
+          <form className="form-grid" onSubmit={submit}>
+            <h3 className="wide">Organisation Details</h3>
+            <label>Organisation name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+            <label>Organisation type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option>NGO</option><option>HOSPITAL</option></select></label>
+            <label>Email domain<input required placeholder="example.org" value={form.email_domain} onChange={(event) => setForm({ ...form, email_domain: event.target.value })} /></label>
+            <label>Contact email<input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+            <label>Phone number<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+            <label>Location/address<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
+            <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>ACTIVE</option><option>INACTIVE</option><option>ARCHIVED</option></select></label>
+            <h3 className="wide">Organisation Administrator Details</h3>
+            <label>Full name<input required value={form.admin_full_name} onChange={(event) => setForm({ ...form, admin_full_name: event.target.value })} /></label>
+            <label>Email<input required type="email" value={form.admin_email} onChange={(event) => setForm({ ...form, admin_email: event.target.value })} /></label>
+            <label>Password<input required={!form.admin_id} type="password" placeholder={form.admin_id ? 'Leave blank to keep current password' : ''} value={form.admin_password} onChange={(event) => setForm({ ...form, admin_password: event.target.value })} /></label>
+            <label>Administrator status<select value={form.admin_status} onChange={(event) => setForm({ ...form, admin_status: event.target.value })}><option>ACTIVE</option><option>INACTIVE</option></select></label>
+            {error && <div className="alert error wide">{error}</div>}
+            <div className="button-row wide">
+              <button className="primary" type="submit" disabled={saving}><Plus size={18} aria-hidden="true" />{saving ? 'Saving...' : isEditing ? 'Save changes' : 'Add organisation'}</button>
+              {isEditing && <button type="button" onClick={resetForm}>Cancel</button>}
+            </div>
           </form>
         </CollapsiblePanel>
         <CollapsiblePanel id="directory" title="Directory" summary={`${organisations.length} organisation${organisations.length === 1 ? '' : 's'}`} expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="add">
-          <OrganisationTable organisations={organisations} onSave={saveOrganisation} />
+          <OrganisationTable organisations={organisations} onEdit={loadOrganisation} />
         </CollapsiblePanel>
       </div>
     </section>
   );
 }
 
-function OrganisationTable({ organisations, onSave }) {
+function OrganisationTable({ organisations, onEdit }) {
   return (
-    <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-      {organisations.map((organisation) => <OrganisationRow key={organisation.id} organisation={organisation} onSave={onSave} />)}
-      {!organisations.length && <tr><td colSpan="5" className="empty">No organisations have been added yet.</td></tr>}
+    <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Email domain</th><th>Contact email</th><th>Location</th><th>Status</th><th className="control-col"></th></tr></thead><tbody>
+      {organisations.map((organisation) => <tr key={organisation.id}><td>{organisation.name}</td><td>{organisation.type}</td><td>{getEmailDomain(organisation.email) || 'Not set'}</td><td>{organisation.email || 'Not set'}</td><td>{organisation.location || 'Not set'}</td><td><span className={statusClass[organisation.status] || 'status'}>{organisation.status}</span></td><td><button onClick={() => onEdit(organisation)}>Edit</button></td></tr>)}
+      {!organisations.length && <tr><td colSpan="7" className="empty">No organisations have been added yet.</td></tr>}
     </tbody></table></div>
   );
 }
 
-function OrganisationRow({ organisation, onSave }) {
-  const [draft, setDraft] = useState({ ...organisation });
-  return (
-    <tr>
-      <td><input value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></td>
-      <td>{draft.type}</td>
-      <td><input value={draft.location || ''} onChange={(event) => setDraft({ ...draft, location: event.target.value })} /></td>
-      <td><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option>ACTIVE</option><option>INACTIVE</option><option>ARCHIVED</option></select></td>
-      <td><button onClick={() => onSave(draft)}>Save</button></td>
-    </tr>
-  );
-}
+function OrganisationAdmins({ admins, loading, user }) {
+  const navigate = useNavigate();
 
-function OrganisationAdmins({ organisations, admins, loading, refresh, setNotice }) {
-  const { expandedPanel, togglePanel } = useExclusiveExpansion('directory');
-  const [form, setForm] = useState({ organisation_id: '', full_name: '', email: '', password: 'password123' });
-  async function submit(event) {
-    event.preventDefault();
-    await api(`/admin/organisations/${form.organisation_id}/admins`, { method: 'POST', body: form });
-    setForm({ organisation_id: '', full_name: '', email: '', password: 'password123' });
-    setNotice('Organisation administrator created.');
-    refresh();
+  function editAdmin(admin) {
+    navigate(`${routeForView('organisations', user)}?editOrganisationId=${admin.organisation_id}`);
   }
-  async function saveAdmin(admin) {
-    await api(`/admin/organisation-admins/${admin.id}`, {
-      method: 'PATCH',
-      body: {
-        organisation_id: admin.organisation_id,
-        full_name: admin.full_name,
-        email: admin.email,
-        status: admin.status
-      }
-    });
-    setNotice('Organisation administrator updated.');
-    refresh();
-  }
+
   return (
     <section className="page">
       <h1>Organisation Admins</h1>
-      <div className="accordion-stack">
-        <CollapsiblePanel id="create" title="Create administrator" summary="Assign an administrator to an organisation" expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="directory">
-          <form className="form-grid" onSubmit={submit}>
-            <label className="wide">Organisation<select required value={form.organisation_id} onChange={(event) => setForm({ ...form, organisation_id: event.target.value })}><option value="">Select organisation</option>{organisations.map((org) => <option key={org.id} value={org.id}>{org.name} ({org.type})</option>)}</select></label>
-            <label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label>
-            <label>Email<input required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-            <label>Password<input required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-            <button className="primary wide" type="submit"><UserCog size={18} aria-hidden="true" />Create admin</button>
-          </form>
-        </CollapsiblePanel>
-        <CollapsiblePanel id="directory" title="Administrator directory" summary={`${admins.length} administrator${admins.length === 1 ? '' : 's'}`} expandedPanel={expandedPanel} onToggle={togglePanel} fallbackPanel="create">
-          {loading ? <div className="empty">Loading organisation administrators...</div> : <OrganisationAdminTable admins={admins} organisations={organisations} onSave={saveAdmin} />}
-        </CollapsiblePanel>
-      </div>
+      <section className="panel">
+        <div className="panel-heading">
+          <h3>Administrator directory</h3>
+          <span>{admins.length} administrator{admins.length === 1 ? '' : 's'}</span>
+        </div>
+        {loading ? <div className="empty">Loading organisation administrators...</div> : <OrganisationAdminTable admins={admins} onEdit={editAdmin} />}
+      </section>
     </section>
   );
 }
 
-function OrganisationAdminTable({ admins, organisations, onSave }) {
+function OrganisationAdminTable({ admins, onEdit }) {
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Organisation</th><th>Type</th><th>Status</th><th>Date added</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Assigned organisation</th><th>Organisation type</th><th>Status</th><th>Date added</th><th className="control-col"></th></tr></thead>
         <tbody>
-          {admins.map((admin) => <OrganisationAdminRow key={admin.id} admin={admin} organisations={organisations} onSave={onSave} />)}
+          {admins.map((admin) => <tr key={admin.id}><td>{admin.full_name}</td><td>{admin.email}</td><td>{admin.organisation_name}</td><td>{admin.organisation_type}</td><td><span className={statusClass[admin.status] || 'status'}>{admin.status}</span></td><td>{formatDate(admin.created_at)}</td><td><button onClick={() => onEdit(admin)}>Edit</button></td></tr>)}
           {!admins.length && <tr><td colSpan="7" className="empty">No organisation administrators have been added yet.</td></tr>}
         </tbody>
       </table>
     </div>
-  );
-}
-
-function OrganisationAdminRow({ admin, organisations, onSave }) {
-  const [draft, setDraft] = useState({ ...admin });
-  const selectedOrganisation = organisations.find((organisation) => Number(organisation.id) === Number(draft.organisation_id));
-
-  return (
-    <tr>
-      <td><input value={draft.full_name || ''} onChange={(event) => setDraft({ ...draft, full_name: event.target.value })} /></td>
-      <td><input value={draft.email || ''} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></td>
-      <td><select value={draft.organisation_id || ''} onChange={(event) => setDraft({ ...draft, organisation_id: event.target.value })}>{organisations.map((organisation) => <option key={organisation.id} value={organisation.id}>{organisation.name}</option>)}</select></td>
-      <td>{selectedOrganisation?.type || admin.organisation_type || 'Not available'}</td>
-      <td><select value={draft.status || 'ACTIVE'} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option>ACTIVE</option><option>INACTIVE</option></select></td>
-      <td>{formatDate(admin.created_at)}</td>
-      <td><button onClick={() => onSave(draft)}>Save</button></td>
-    </tr>
   );
 }
 
@@ -750,6 +840,7 @@ function Referrals({ referrals, statuses, user }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const isHospitalUser = user.role === ROLES.HOSPITAL_RECORDS_KEEPER;
+  const isNgoUser = user.role === ROLES.NGO_SOCIAL_WORKER;
   const filtered = referrals.filter((referral) => {
     const matchesSearch = `${referral.referral_number} ${referral.beneficiary_name} ${referral.status} ${referral.hospital_name} ${referral.ngo_name}`.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = !statusFilter || referral.status === statusFilter;
@@ -766,18 +857,18 @@ function Referrals({ referrals, statuses, user }) {
         </div>
       </div>
       <section className="panel">
-        <ReferralTable referrals={filtered} hideHospital={isHospitalUser} organisationLabel={isHospitalUser ? 'Referred by' : 'Organisation'} />
+        <ReferralTable referrals={filtered} hideHospital={isHospitalUser} hideOrganisation={isNgoUser} organisationLabel={isHospitalUser ? 'Referred by' : 'Organisation'} hospitalLabel={isNgoUser ? 'Referred to' : 'Hospital'} />
       </section>
     </section>
   );
 }
 
 function NewReferral({ lookups, beneficiaries, refresh, setNotice }) {
-  const [form, setForm] = useState({ beneficiary_id: '', receiving_organisation_id: '', service_required: '', urgency: 'Medium', reason: '', due_date: '' });
+  const [form, setForm] = useState({ beneficiary_id: '', receiving_organisation_id: '', service_required: '', urgency: 'Medium', reason: '' });
   async function submit(event) {
     event.preventDefault();
     await api('/referrals', { method: 'POST', body: form });
-    setForm({ beneficiary_id: '', receiving_organisation_id: '', service_required: '', urgency: 'Medium', reason: '', due_date: '' });
+    setForm({ beneficiary_id: '', receiving_organisation_id: '', service_required: '', urgency: 'Medium', reason: '' });
     setNotice('Referral submitted.');
     refresh();
   }
@@ -787,7 +878,6 @@ function NewReferral({ lookups, beneficiaries, refresh, setNotice }) {
       <label>Destination hospital<select required value={form.receiving_organisation_id} onChange={(event) => setForm({ ...form, receiving_organisation_id: event.target.value })}><option value="">Select hospital</option>{lookups.hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name}</option>)}</select></label>
       <label>Service required<input required value={form.service_required} onChange={(event) => setForm({ ...form, service_required: event.target.value })} /></label>
       <label>Urgency<select value={form.urgency} onChange={(event) => setForm({ ...form, urgency: event.target.value })}>{lookups.urgencyLevels.map((level) => <option key={level}>{level}</option>)}</select></label>
-      <label>Due date<input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} /></label>
       <label className="wide">Reason<textarea required rows="5" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} /></label>
       <button className="primary wide" type="submit"><Send size={18} aria-hidden="true" />Submit referral</button>
     </form></section>
@@ -805,6 +895,8 @@ function HospitalInbox({ referrals, refresh, setNotice }) {
 }
 
 function Beneficiaries({ beneficiaries, refresh, setNotice }) {
+  const { expandedPanel, togglePanel } = useExclusiveExpansion('profiles');
+  const [expandedCaseProfileId, setExpandedCaseProfileId] = useState(null);
   const [form, setForm] = useState({ full_name: '', gender: 'Female', phone: '', county: '', location: '', vulnerability_notes: '', consent_recorded: true });
   async function submit(event) {
     event.preventDefault();
@@ -813,7 +905,59 @@ function Beneficiaries({ beneficiaries, refresh, setNotice }) {
     setForm({ full_name: '', gender: 'Female', phone: '', county: '', location: '', vulnerability_notes: '', consent_recorded: true });
     refresh();
   }
-  return <section className="page"><h1>Client Case Profiles</h1><div className="content-grid"><form className="panel stack" onSubmit={submit}><h3>Create profile</h3><label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label><label>Gender<select value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option>Female</option><option>Male</option><option>Other</option></select></label><label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label><label>County<input required value={form.county} onChange={(event) => setForm({ ...form, county: event.target.value })} /></label><label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label><label>Case notes<textarea rows="4" value={form.vulnerability_notes} onChange={(event) => setForm({ ...form, vulnerability_notes: event.target.value })} /></label><label className="checkline"><input type="checkbox" checked={form.consent_recorded} onChange={(event) => setForm({ ...form, consent_recorded: event.target.checked })} /> Consent recorded</label><button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Save profile</button></form><section className="panel"><h3>Profiles</h3><div className="profile-list">{beneficiaries.map((person) => <article key={person.id} className="profile-item"><strong>{person.full_name}</strong><span>{person.case_number}</span><p>{person.county} · {person.location || 'Location not set'}</p><small>{person.referral_count} referrals</small></article>)}</div></section></div></section>;
+  function toggleProfile(profileId) {
+    setExpandedCaseProfileId((current) => (current === profileId ? null : profileId));
+  }
+
+  return (
+    <section className="page">
+      <h1>Client Case Profiles</h1>
+      <div className="accordion-stack">
+        <CollapsiblePanel id="create-profile" title="Create profile" summary="Add a new client case profile" expandedPanel={expandedPanel} onToggle={togglePanel}>
+          <form className="stack" onSubmit={submit}>
+            <label>Full name<input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} /></label>
+            <label>Gender<select value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option>Female</option><option>Male</option><option>Other</option></select></label>
+            <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+            <label>County<input required value={form.county} onChange={(event) => setForm({ ...form, county: event.target.value })} /></label>
+            <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
+            <label>Case notes<textarea rows="4" value={form.vulnerability_notes} onChange={(event) => setForm({ ...form, vulnerability_notes: event.target.value })} /></label>
+            <label className="checkline"><input type="checkbox" checked={form.consent_recorded} onChange={(event) => setForm({ ...form, consent_recorded: event.target.checked })} /> Consent recorded</label>
+            <button className="primary" type="submit"><Plus size={18} aria-hidden="true" />Save profile</button>
+          </form>
+        </CollapsiblePanel>
+        <CollapsiblePanel id="profiles" title="Profiles" summary={`${beneficiaries.length} profile${beneficiaries.length === 1 ? '' : 's'}`} expandedPanel={expandedPanel} onToggle={togglePanel}>
+          <div className="profile-list">
+            {beneficiaries.map((person) => <CaseProfileCard key={person.id} person={person} isExpanded={expandedCaseProfileId === person.id} onToggle={() => toggleProfile(person.id)} />)}
+            {!beneficiaries.length && <div className="empty">No case profiles have been created yet.</div>}
+          </div>
+        </CollapsiblePanel>
+      </div>
+    </section>
+  );
+}
+
+function CaseProfileCard({ person, isExpanded, onToggle }) {
+  return (
+    <article className="profile-item">
+      <button className="profile-toggle" type="button" onClick={onToggle} aria-expanded={isExpanded}>
+        <span>
+          <strong>{person.full_name}</strong>
+          <span>{person.case_number}</span>
+          <p>{person.county} · {person.location || 'Location not set'}</p>
+        </span>
+        <small>{person.referral_count} referrals</small>
+      </button>
+      {isExpanded && (
+        <div className="profile-details">
+          <div><span>Gender</span><strong>{person.gender}</strong></div>
+          <div><span>Phone</span><strong>{person.phone || 'Not set'}</strong></div>
+          <div><span>Consent</span><strong>{person.consent_recorded ? 'Recorded' : 'Not recorded'}</strong></div>
+          <div><span>Last referral</span><strong>{formatDate(person.last_referral_at)}</strong></div>
+          <div className="wide"><span>Case notes</span><strong>{person.vulnerability_notes || 'No notes added.'}</strong></div>
+        </div>
+      )}
+    </article>
+  );
 }
 
 function Feedback({ referrals, refresh, setNotice, user }) {
@@ -907,16 +1051,43 @@ function NgoFeedback({ referrals }) {
 
 function Reports({ reportOptions, lookups, user }) {
   const [form, setForm] = useState({ report_type: '', output_format: 'screen' });
-  const [filters, setFilters] = useState({});
+  const [filters, setFilters] = useState({ date_preset: 'all' });
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const reports = reportOptions?.reports || [];
-  const selectedReport = reports.find((report) => report.report_key === form.report_type);
+  const currentReportKey = form.report_type || reports[0]?.report_key || '';
+  const selectedReport = reports.find((report) => report.report_key === currentReportKey);
   const availableFilters = selectedReport?.available_filters || [];
+  const showReportType = reports.length > 1;
+
+  useEffect(() => {
+    if (!form.report_type && reports.length === 1) {
+      setForm((current) => ({ ...current, report_type: reports[0].report_key }));
+    }
+  }, [reports.length, form.report_type]);
 
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function presetRange(preset) {
+    const now = new Date();
+    const yyyyMmDd = (date) => date.toISOString().slice(0, 10);
+    if (preset === 'today') return { start_date: yyyyMmDd(now), end_date: yyyyMmDd(now) };
+    if (preset === 'week') {
+      const start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      return { start_date: yyyyMmDd(start), end_date: yyyyMmDd(now) };
+    }
+    if (preset === 'month') return { start_date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`, end_date: yyyyMmDd(now) };
+    if (preset === 'year') return { start_date: `${now.getFullYear()}-01-01`, end_date: yyyyMmDd(now) };
+    if (preset === 'all') return { start_date: '', end_date: '' };
+    return {};
+  }
+
+  function updateDatePreset(value) {
+    setFilters((current) => ({ ...current, date_preset: value, ...presetRange(value) }));
   }
 
   async function generate(event) {
@@ -928,7 +1099,7 @@ function Reports({ reportOptions, lookups, user }) {
       const payload = await api('/reports/generate', {
         method: 'POST',
         body: {
-          report_type: form.report_type,
+          report_type: currentReportKey,
           filters,
           output_format: form.output_format
         }
@@ -945,25 +1116,20 @@ function Reports({ reportOptions, lookups, user }) {
     <section className="page">
       <h1>Reports</h1>
       <form className="panel report-builder" onSubmit={generate}>
-        <label>
-          Select Report Type
-          <select required value={form.report_type} onChange={(event) => setForm({ ...form, report_type: event.target.value })}>
-            <option value="">Choose a report</option>
-            {reports.map((report) => <option key={report.report_key} value={report.report_key}>{report.report_name}</option>)}
-          </select>
-        </label>
+        {showReportType ? (
+          <label>
+            Select Report Type
+            <select required value={currentReportKey} onChange={(event) => setForm({ ...form, report_type: event.target.value })}>
+              <option value="">Choose a report</option>
+              {reports.map((report) => <option key={report.report_key} value={report.report_key}>{report.report_name}</option>)}
+            </select>
+          </label>
+        ) : <div><h3>{selectedReport?.report_name || 'Activity Report'}</h3></div>}
         <div className="filters-panel">
-          {availableFilters.includes('start_date') && <label>Start date<input type="date" value={filters.start_date || ''} onChange={(event) => updateFilter('start_date', event.target.value)} /></label>}
-          {availableFilters.includes('end_date') && <label>End date<input type="date" value={filters.end_date || ''} onChange={(event) => updateFilter('end_date', event.target.value)} /></label>}
-          {availableFilters.includes('status') && <label>Referral status<select value={filters.status || ''} onChange={(event) => updateFilter('status', event.target.value)}><option value="">Any status</option>{lookups.statuses.map((status) => <option key={status}>{status}</option>)}</select></label>}
-          {availableFilters.includes('feedback_status') && <label>Feedback status<select value={filters.feedback_status || ''} onChange={(event) => updateFilter('feedback_status', event.target.value)}><option value="">Any feedback</option><option value="PENDING">Pending</option><option value="SUBMITTED">Submitted</option></select></label>}
-          {availableFilters.includes('service_type') && <label>Service type<input value={filters.service_type || ''} onChange={(event) => updateFilter('service_type', event.target.value)} placeholder="e.g. Maternal health assessment" /></label>}
-          {availableFilters.includes('urgency') && <label>Urgency level<select value={filters.urgency || ''} onChange={(event) => updateFilter('urgency', event.target.value)}><option value="">Any urgency</option>{lookups.urgencyLevels.map((level) => <option key={level}>{level}</option>)}</select></label>}
-          {availableFilters.includes('organisation_id') && user.role === ROLES.NGO_SOCIAL_WORKER && <label>Destination hospital<select value={filters.organisation_id || ''} onChange={(event) => updateFilter('organisation_id', event.target.value)}><option value="">All hospitals</option>{lookups.hospitals.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
-          {availableFilters.includes('organisation_id') && user.role === ROLES.HOSPITAL_RECORDS_KEEPER && <label>Referring NGO<select value={filters.organisation_id || ''} onChange={(event) => updateFilter('organisation_id', event.target.value)}><option value="">All NGOs</option>{lookups.ngos.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
-          {availableFilters.includes('staff_id') && <label>Staff member<select value={filters.staff_id || ''} onChange={(event) => updateFilter('staff_id', event.target.value)}><option value="">All staff</option>{lookups.users.map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select></label>}
-          {availableFilters.includes('organisation_type') && <label>Organisation type<select value={filters.organisation_type || ''} onChange={(event) => updateFilter('organisation_type', event.target.value)}><option value="">All types</option><option>NGO</option><option>HOSPITAL</option></select></label>}
-          {availableFilters.includes('organisation_status') && <label>Organisation status<select value={filters.organisation_status || ''} onChange={(event) => updateFilter('organisation_status', event.target.value)}><option value="">All statuses</option><option>ACTIVE</option><option>INACTIVE</option><option>ARCHIVED</option></select></label>}
+          {availableFilters.includes('date_preset') && <label>Date range<select value={filters.date_preset || 'all'} onChange={(event) => updateDatePreset(event.target.value)}><option value="all">All time</option><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option><option value="custom">Custom range</option></select></label>}
+          {filters.date_preset === 'custom' && availableFilters.includes('start_date') && <label>Start date<input type="date" value={filters.start_date || ''} onChange={(event) => updateFilter('start_date', event.target.value)} /></label>}
+          {filters.date_preset === 'custom' && availableFilters.includes('end_date') && <label>End date<input type="date" value={filters.end_date || ''} onChange={(event) => updateFilter('end_date', event.target.value)} /></label>}
+          {availableFilters.includes('organisation_id') && user.role === ROLES.PLATFORM_ADMIN && <label>Organisation<select value={filters.organisation_id || ''} onChange={(event) => updateFilter('organisation_id', event.target.value)}><option value="">All organisations</option>{lookups.organisations.map((org) => <option key={org.id} value={org.id}>{org.name} ({org.type})</option>)}</select></label>}
         </div>
         <label>
           Output format
@@ -972,7 +1138,7 @@ function Reports({ reportOptions, lookups, user }) {
           </select>
         </label>
         {error && <div className="alert error">{error}</div>}
-        <button className="primary" type="submit" disabled={!form.report_type || busy}><FileText size={18} aria-hidden="true" />{busy ? 'Generating...' : 'Generate Report'}</button>
+        <button className="primary" type="submit" disabled={!currentReportKey || busy}><FileText size={18} aria-hidden="true" />{busy ? 'Generating...' : 'Generate Report'}</button>
       </form>
       <ReportResult result={result} />
     </section>
@@ -981,18 +1147,52 @@ function Reports({ reportOptions, lookups, user }) {
 
 function ReportResult({ result }) {
   if (!result) return null;
-  const sections = result.sections || [{ report_name: result.report_name, rows: result.rows || [], summary: result.summary || {} }];
+  const sections = result.sections || [{ title: result.report_name, rows: result.rows || [], summary: result.summary || {} }];
   return (
     <section className="report-preview">
       <div className="title-row">
         <div>
           <h2>{result.report_name}</h2>
-          <p>Generated {new Date(result.generated_at).toLocaleString()}</p>
+          <p>Generated {new Date(result.generated_at).toLocaleString()} by {result.generated_by?.name || 'Current user'}</p>
         </div>
-        {result.file_url && <a className="download-link" href={result.file_url} download={result.file_name}>Download {result.output_format}</a>}
+        <div className="button-row">
+          <button type="button" onClick={() => window.print()}>Print Report</button>
+          {result.file_url && <a className="download-link" href={result.file_url} download={result.file_name}>Download {String(result.output_format || '').toUpperCase()}</a>}
+        </div>
       </div>
-      {sections.map((section) => <ReportSection key={section.report_key || section.report_name} section={section} />)}
+      <section className="panel">
+        <h3>Selected filters</h3>
+        <div className="detail-grid">
+          {Object.entries(result.filters_applied || {}).map(([key, value]) => <div key={key}><span>{key.replaceAll('_', ' ')}</span><strong>{String(value)}</strong></div>)}
+        </div>
+      </section>
+      <div className="metrics-grid">
+        {(result.summary_cards || []).map((card) => <Metric key={card.label} label={card.label} value={card.value} icon={FileText} />)}
+      </div>
+      {!!result.charts?.length && <section className="panel"><h3>Charts</h3><div className="chart-grid">{result.charts.map((chart) => <ReportChart key={chart.title} chart={chart} />)}</div></section>}
+      {sections.map((section) => <ReportSection key={section.title || section.report_key || section.report_name} section={section} />)}
+      {!!result.observations?.length && <section className="panel"><h3>Observations</h3><div className="notice-list">{result.observations.map((item, index) => <div className="notice-item" key={index}><FileText size={16} aria-hidden="true" /><span>{item}</span></div>)}</div></section>}
     </section>
+  );
+}
+
+function ReportChart({ chart }) {
+  const rows = chart.rows || [];
+  const max = Math.max(...rows.map((row) => Number(row.total || 0)), 1);
+  return (
+    <article className="chart-card">
+      <h4>{chart.title}</h4>
+      <div className="bars">
+        {rows.map((row) => (
+          <div className="bar-row" key={row.label}>
+            <span>{row.label}</span>
+            <div><span style={{ width: `${(Number(row.total || 0) / max) * 100}%` }} /></div>
+            <strong>{row.total}</strong>
+          </div>
+        ))}
+        {!rows.length && <div className="empty">No chart data.</div>}
+      </div>
+    </article>
   );
 }
 
@@ -1001,7 +1201,7 @@ function ReportSection({ section }) {
   const columns = rows.length ? Object.keys(rows[0]) : [];
   return (
     <section className="panel">
-      <h3>{section.report_name}</h3>
+      <h3>{section.title || section.report_name}</h3>
       <p>{section.summary?.total_records ?? rows.length} records</p>
       {!rows.length ? <div className="empty">No records found</div> : (
         <div className="table-wrap">
@@ -1019,20 +1219,48 @@ function SimpleRows({ title, rows, columns }) {
   return <section className="page"><h1>{title}</h1><section className="panel"><div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id || index}>{columns.map((column) => <td key={column.key}>{column.render ? column.render(row) : row[column.key]}</td>)}</tr>)}</tbody></table></div></section></section>;
 }
 
-function App() {
-  const [user, setUser] = useState(getStoredUser());
-  const [active, setActive] = useState('dashboard');
-  const { data, loading, notice, setNotice, refresh, removeNotification } = useAppData(user);
+function UserProfile({ user }) {
+  return (
+    <section className="page">
+      <h1>Profile</h1>
+      <section className="panel">
+        <div className="detail-grid">
+          <div><span>Name</span><strong>{user.full_name}</strong></div>
+          <div><span>Email</span><strong>{user.email}</strong></div>
+          <div><span>Role</span><strong>{roleLabels[user.role]}</strong></div>
+          <div><span>Organisation</span><strong>{user.organisation_name || 'Platform governance'}</strong></div>
+          {user.organisation_type && <div><span>Organisation type</span><strong>{user.organisation_type}</strong></div>}
+        </div>
+      </section>
+    </section>
+  );
+}
 
-  useEffect(() => {
-    if (!user) return;
-    if (!isAllowedView(active, user)) setActive(defaultViewForUser(user));
-  }, [user?.role, active]);
+function StatusPage({ title, message, actionLabel, actionPath }) {
+  const navigate = useNavigate();
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="brand-mark"><HeartPulse size={30} aria-hidden="true" /></div>
+        <h1>{title}</h1>
+        <p>{message}</p>
+        {actionPath && <button className="primary" type="button" onClick={() => navigate(actionPath)}>{actionLabel}</button>}
+      </section>
+    </main>
+  );
+}
 
-  function handleLogin(nextUser) {
-    setUser(nextUser);
-    setActive(defaultViewForUser(nextUser));
+function RequireRole({ user, roles, children }) {
+  if (!roles.includes(user.role)) {
+    return <Navigate to="/unauthorized" replace />;
   }
+
+  return children;
+}
+
+function AuthenticatedApp({ user, onLogout }) {
+  const navigate = useNavigate();
+  const { data, loading, notice, setNotice, refresh, removeNotification } = useAppData(user);
 
   async function attendNotification(notificationId) {
     try {
@@ -1045,14 +1273,17 @@ function App() {
     }
   }
 
-  const view = useMemo(() => {
+  function navigateToView(viewId) {
+    navigate(routeForView(viewId, user));
+  }
+
+  function renderView(viewId) {
     const props = { refresh, setNotice };
-    const safeActive = isAllowedView(active, user) ? active : defaultViewForUser(user);
-    switch (safeActive) {
+    switch (viewId) {
       case 'organisations':
-        return <Organisations organisations={data.admin.organisations} {...props} />;
+        return <Organisations organisations={data.admin.organisations} admins={data.admin.organisationAdmins} {...props} />;
       case 'organisation-admins':
-        return <OrganisationAdmins organisations={data.admin.organisations} admins={data.admin.organisationAdmins} loading={loading} {...props} />;
+        return <OrganisationAdmins admins={data.admin.organisationAdmins} loading={loading} user={user} />;
       case 'service-categories':
         return <ServiceCategories categories={data.admin.serviceCategories} {...props} />;
       case 'audit-logs':
@@ -1061,10 +1292,12 @@ function App() {
         return <SimpleRows title="Active Users by Organisation" rows={data.admin.activeUsers} columns={[{ key: 'name', label: 'Organisation' }, { key: 'type', label: 'Type' }, { key: 'status', label: 'Status' }, { key: 'active_users', label: 'Active users' }]} />;
       case 'staff-users':
         return <StaffUsers staff={data.admin.staff} user={user} loading={loading} {...props} />;
-      case 'org-profile':
-        return <OrganisationProfile organisation={data.admin.organisationProfile} loading={loading} {...props} />;
+      case 'profile':
+        return user.role === ROLES.ORG_ADMIN ? <OrganisationProfile organisation={data.admin.organisationProfile} loading={loading} {...props} /> : <UserProfile user={user} />;
       case 'referrals':
-        return <Referrals referrals={data.referrals} statuses={data.lookups.statuses} user={user} {...props} />;
+        return user.role === ROLES.ORG_ADMIN
+          ? <Referrals referrals={[]} statuses={data.lookups.statuses} user={user} {...props} />
+          : <Referrals referrals={data.referrals} statuses={data.lookups.statuses} user={user} {...props} />;
       case 'new-referral':
         return <NewReferral lookups={data.lookups} beneficiaries={data.beneficiaries} {...props} />;
       case 'hospital-inbox':
@@ -1076,18 +1309,90 @@ function App() {
       case 'reports':
         return <Reports reportOptions={data.reportOptions} lookups={data.lookups} user={user} />;
       default:
-        return <Dashboard dashboard={data.dashboard} onNavigate={setActive} onAttendNotification={attendNotification} user={user} loading={loading} />;
+        return <Dashboard dashboard={data.dashboard} onNavigate={navigateToView} onAttendNotification={attendNotification} user={user} loading={loading} />;
     }
-  }, [active, data, user, loading]);
+  }
 
-  if (!user) return <Login onLogin={handleLogin} />;
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to={dashboardPathForUser(user)} replace />} />
+      <Route path="/login" element={<Navigate to={dashboardPathForUser(user)} replace />} />
+      <Route path="/unauthorized" element={<StatusPage title="Unauthorized" message="You do not have access to that area." actionLabel="Go to my dashboard" actionPath={dashboardPathForUser(user)} />} />
+      <Route path="/not-found" element={<StatusPage title="Page not found" message="That ReferralLink page does not exist." actionLabel="Go to my dashboard" actionPath={dashboardPathForUser(user)} />} />
+
+      <Route path="/platform" element={<RequireRole user={user} roles={[ROLES.PLATFORM_ADMIN]}><Shell user={user} onLogout={onLogout} notice={notice} setNotice={setNotice} loading={loading} /></RequireRole>}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={renderView('dashboard')} />
+        <Route path="organisations" element={renderView('organisations')} />
+        <Route path="organisation-admins" element={renderView('organisation-admins')} />
+        <Route path="service-categories" element={renderView('service-categories')} />
+        <Route path="audit-logs" element={renderView('audit-logs')} />
+        <Route path="active-users" element={renderView('active-users')} />
+        <Route path="reports" element={renderView('reports')} />
+      </Route>
+
+      <Route path="/org-admin" element={<RequireRole user={user} roles={[ROLES.ORG_ADMIN]}><Shell user={user} onLogout={onLogout} notice={notice} setNotice={setNotice} loading={loading} /></RequireRole>}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={renderView('dashboard')} />
+        <Route path="staff-users" element={renderView('staff-users')} />
+        <Route path="referrals" element={renderView('referrals')} />
+        <Route path="reports" element={renderView('reports')} />
+        <Route path="profile" element={renderView('profile')} />
+      </Route>
+
+      <Route path="/ngo" element={<RequireRole user={user} roles={[ROLES.NGO_SOCIAL_WORKER]}><Shell user={user} onLogout={onLogout} notice={notice} setNotice={setNotice} loading={loading} /></RequireRole>}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={renderView('dashboard')} />
+        <Route path="referrals" element={renderView('referrals')} />
+        <Route path="new-referral" element={renderView('new-referral')} />
+        <Route path="case-profiles" element={renderView('beneficiaries')} />
+        <Route path="feedback" element={renderView('feedback')} />
+        <Route path="reports" element={renderView('reports')} />
+        <Route path="profile" element={renderView('profile')} />
+      </Route>
+
+      <Route path="/hospital" element={<RequireRole user={user} roles={[ROLES.HOSPITAL_RECORDS_KEEPER]}><Shell user={user} onLogout={onLogout} notice={notice} setNotice={setNotice} loading={loading} /></RequireRole>}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={renderView('dashboard')} />
+        <Route path="inbox" element={renderView('hospital-inbox')} />
+        <Route path="referrals" element={renderView('referrals')} />
+        <Route path="feedback" element={renderView('feedback')} />
+        <Route path="reports" element={renderView('reports')} />
+        <Route path="profile" element={renderView('profile')} />
+      </Route>
+
+      <Route path="*" element={<Navigate to="/not-found" replace />} />
+    </Routes>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(getStoredUser());
+  const navigate = useNavigate();
+
+  function handleLogin(nextUser) {
+    setUser(nextUser);
+    navigate(dashboardPathForUser(nextUser), { replace: true });
+  }
 
   function logout() {
     clearSession();
     setUser(null);
+    navigate('/login', { replace: true });
   }
 
-  return <Shell user={user} onLogout={logout} active={active} setActive={setActive}>{notice && <button className="toast" onClick={() => setNotice('')}>{notice}</button>}{loading && <div className="loading">Loading latest records...</div>}{view}</Shell>;
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login onLogin={handleLogin} />} />
+        <Route path="/unauthorized" element={<StatusPage title="Unauthorized" message="Please sign in with an account that can access this area." actionLabel="Sign in" actionPath="/login" />} />
+        <Route path="/not-found" element={<StatusPage title="Page not found" message="That ReferralLink page does not exist." actionLabel="Sign in" actionPath="/login" />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  return <AuthenticatedApp user={user} onLogout={logout} />;
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(<BrowserRouter><App /></BrowserRouter>);
