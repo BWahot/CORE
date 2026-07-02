@@ -15,7 +15,21 @@ const app = express();
 const port = Number(process.env.PORT || 4000);
 
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || 'http://127.0.0.1:5173',
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174',
+      'http://localhost:5173',
+      'http://localhost:5174',
+      process.env.CLIENT_ORIGIN
+    ].filter(Boolean);
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '2mb' }));

@@ -402,22 +402,67 @@ class PdfReportBuilder {
     this.sectionHeading('Visual analysis');
 
     charts.forEach((chart) => {
-      const rows = chart.rows.slice(0, 8);
-      const height = 38 + rows.length * 24;
-      this.ensureSpace(height + 10);
-      this.rect(this.margin, this.y, this.contentWidth, height, '#ffffff', '#d8e2e0');
+      const rows = chart.rows.slice(0, 12);
+      const barWidth = 30;
+      const chartWidth = rows.length * (barWidth + 8) + 20;
+      const chartHeight = 180;
+      const padding = { top: 10, bottom: 40, left: 30, right: 10 };
+      const maxWidth = this.contentWidth;
+      
+      const width = Math.min(chartWidth, maxWidth);
+      const height = chartHeight + padding.top + padding.bottom;
+      
+      this.ensureSpace(height + 20);
+      
+      // Draw chart border
+      this.rect(this.margin, this.y, maxWidth, height, '#ffffff', '#d8e2e0');
       this.text(chart.title, this.margin + 12, this.y + 20, 11, { bold: true, color: '#24343d' });
+      
       const max = Math.max(...rows.map((row) => Number(row.total || 0)), 1);
+      const availableWidth = Math.min(width - padding.left - padding.right, maxWidth - 24);
+      const scaledBarWidth = Math.max(8, availableWidth / rows.length - 4);
+      const scaledChartHeight = chartHeight - padding.top - padding.bottom;
+      
+      // Draw Y-axis labels
+      const yLabelCount = 4;
+      for (let i = 0; i <= yLabelCount; i++) {
+        const ratio = i / yLabelCount;
+        const value = Math.round(max * ratio);
+        const y = this.y + padding.top + chartHeight - ratio * scaledChartHeight;
+        this.text(String(value), this.margin + padding.left - 8, y + 2, 7, { 
+          color: '#666', 
+          align: 'right'
+        });
+      }
+      
+      // Draw bars
       rows.forEach((row, index) => {
-        const y = this.y + 42 + index * 24;
-        const labelWidth = 130;
-        const barWidth = 300;
         const value = Number(row.total || 0);
-        this.wrappedText(row.label, this.margin + 12, y, labelWidth, 8, { color: '#394c54' });
-        this.rect(this.margin + 154, y - 8, barWidth, 10, '#edf2f4');
-        this.rect(this.margin + 154, y - 8, Math.max(2, (value / max) * barWidth), 10, '#0f766e');
-        this.text(String(value), this.margin + 466, y, 9, { bold: true, color: '#24343d' });
+        const barHeight = (value / max) * scaledChartHeight;
+        const x = this.margin + padding.left + index * (scaledBarWidth + 4);
+        const barY = this.y + padding.top + chartHeight - barHeight;
+        
+        // Draw bar
+        this.rect(x, barY, scaledBarWidth, barHeight, '#0f766e');
+        
+        // Draw value on top of bar
+        if (value > 0) {
+          this.text(String(value), x + scaledBarWidth / 2, barY - 3, 7, {
+            bold: true,
+            color: '#0f766e'
+          });
+        }
+        
+        // Draw label below bar
+        const labelY = this.y + padding.top + chartHeight + 8;
+        const labelLines = this.wrapText(row.label, scaledBarWidth + 4, 6);
+        labelLines.forEach((line, lineIndex) => {
+          this.text(line, x + 2, labelY + lineIndex * 7, 6, {
+            color: '#394c54'
+          });
+        });
       });
+      
       this.y += height + 14;
     });
   }

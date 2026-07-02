@@ -33,6 +33,7 @@ import {
   UsersRound
 } from 'lucide-react';
 import { api, clearSession, getStoredUser, setSession } from './api/client.js';
+import { SimpleBarChart } from './components/SimpleBarChart.jsx';
 import './styles/app.css';
 
 const ROLES = {
@@ -1177,23 +1178,7 @@ function ReportResult({ result }) {
 }
 
 function ReportChart({ chart }) {
-  const rows = chart.rows || [];
-  const max = Math.max(...rows.map((row) => Number(row.total || 0)), 1);
-  return (
-    <article className="chart-card">
-      <h4>{chart.title}</h4>
-      <div className="bars">
-        {rows.map((row) => (
-          <div className="bar-row" key={row.label}>
-            <span>{row.label}</span>
-            <div><span style={{ width: `${(Number(row.total || 0) / max) * 100}%` }} /></div>
-            <strong>{row.total}</strong>
-          </div>
-        ))}
-        {!rows.length && <div className="empty">No chart data.</div>}
-      </div>
-    </article>
-  );
+  return <SimpleBarChart data={chart.rows || []} title={chart.title} />;
 }
 
 function ReportSection({ section }) {
